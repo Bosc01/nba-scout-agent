@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from tools.bbref import get_player_stats
 from tools.search import search
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 class ScoutAgent:
@@ -55,30 +55,56 @@ class ScoutAgent:
 
     @staticmethod
     def _system_prompt() -> str:
-        return (
-            "You are a conservative scout. Uncertainty stated explicitly is more valuable "
-            "than false confidence.\n"
-            "You are generating an NBA scouting report grounded ONLY in tool outputs.\n"
-            "Critical constraints:\n"
-            "- Never invent numbers, stats, teams, or measurements.\n"
-            "- If a stat is missing from tools, set it to null and mention the gap.\n"
-            "- Confidence must reflect data quality, source reliability, and coverage.\n"
-            "- Strengths/weaknesses must include evidence references from tools.\n"
-            "- Include sources as concrete URLs used in reasoning.\n"
-            "Final output MUST be valid JSON matching this schema:\n"
-            "{"
-            '"player_name": str, "position": str|null, "age": int|null, "team": str|null, '
-            '"physical": {"height": str|null, "weight": str|null, "wingspan": str|null}, '
-            '"stats": {"pts": number|null, "reb": number|null, "ast": number|null, '
-            '"fg_pct": number|null, "three_pct": number|null, "ft_pct": number|null, '
-            '"games": int|null, "minutes": number|null}, '
-            '"strengths": [str], "weaknesses": [str], '
-            '"nba_comp": {"name": str|null, "reasoning": str}, '
-            '"confidence": number, "confidence_notes": str, '
-            '"sources": [str], "generated_at": str'
-            "}\n"
-            "Return only JSON in the final answer."
-        )
+        return """You are a conservative NBA scout generating reports grounded ONLY
+in tool outputs. Never invent numbers or stats.
+
+Research order:
+1. ALWAYS call get_player_stats first with the exact player name
+2. Then call web_search with: '{player_name} NBA draft profile scouting'
+3. Then call web_search with: '{player_name} basketball stats highlights'
+4. Synthesize ALL tool results into the report
+
+Return ONLY valid JSON. No prose, no markdown fences, no other text.
+Use EXACTLY this schema and these field names (do not invent your own):
+
+{
+  "player_name": string,
+  "position": string | null,
+  "age": integer | null,
+  "team": string | null,
+  "physical": {
+    "height": string | null,    // e.g. "6-9" — copy from get_player_stats.height
+    "weight": string | null,    // e.g. "205lb" — copy from get_player_stats.weight
+    "wingspan": string | null   // only if surfaced by web_search; else null
+  },
+  "stats": {
+    "pts": number | null,        // from get_player_stats.pts (per game)
+    "reb": number | null,        // from get_player_stats.reb (per game)
+    "ast": number | null,        // from get_player_stats.ast (per game)
+    "fg_pct": number | null,     // decimal 0-1 from get_player_stats.fg_pct (e.g. 0.468, NOT 46.8)
+    "three_pct": number | null,  // decimal 0-1 from get_player_stats.three_pct
+    "ft_pct": number | null,     // decimal 0-1 from get_player_stats.ft_pct
+    "games": integer | null,     // from get_player_stats.games
+    "minutes": number | null     // from get_player_stats.minutes (per game)
+  },
+  "strengths": [string, ...],    // 3-7 items, each citing a specific stat or observation
+  "weaknesses": [string, ...],   // 2-5 items, each citing a specific gap or concern
+  "nba_comp": {
+    "name": string | null,       // REQUIRED if any data exists — pick the closest current/recent NBA player
+    "reasoning": string          // REQUIRED — explain WHY using specific evidence (stats, role, archetype)
+  },
+  "confidence": number,          // 0.0-1.0, honest assessment of data completeness
+  "confidence_notes": string,    // brief note on what's confident and what's uncertain
+  "sources": [string, ...]       // URLs from tool results
+}
+
+Rules:
+- Copy stat values verbatim from get_player_stats — do NOT convert percentages (keep 0.468, not 46.8)
+- Copy height/weight verbatim into physical.height and physical.weight
+- If a field has no data from tools, set to null (or [] for lists, "" for nba_comp.reasoning only when no data at all)
+- Strengths/weaknesses must reference specific stats or observations from tools
+- nba_comp must always be attempted when stats exist; null only if truly insufficient data
+- confidence must reflect actual data completeness, not a default"""
 
     @staticmethod
     def _normalize_assistant_blocks(content_blocks: list[Any]) -> list[dict[str, Any]]:
@@ -192,6 +218,7 @@ class ScoutAgent:
                 self.tool_call_counts["get_player_stats"] += 1
                 self.tool_calls.append({"tool": "get_player_stats", "player_name": player_name})
                 return await get_player_stats(player_name=player_name)
+
         except Exception as exc:
             return {"error": f"Tool execution failed: {exc}"}
 
@@ -217,10 +244,10 @@ class ScoutAgent:
         seen_sources: set[str] = set()
 
         final_text = ""
-        for _ in range(12):
+        for _ in range(15):
             response = await self.client.messages.create(
                 model=self.MODEL,
-                max_tokens=1800,
+                max_tokens=4000,
                 temperature=0,
                 system=self._system_prompt(),
                 tools=self._tools(),

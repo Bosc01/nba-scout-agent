@@ -1,26 +1,30 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
 
-from tools.search import search
 
-_TIMEOUT_SECONDS = 10.0
-
-
-def _extract_labeled_value(meta: BeautifulSoup, label: str) -> str | None:
-    strong = meta.find("strong", string=re.compile(rf"^{re.escape(label)}", re.IGNORECASE))
-    if strong is None:
-        return None
-    parent = strong.parent
-    if parent is None:
-        return None
-    text = parent.get_text(" ", strip=True)
-    value = re.sub(rf"^{re.escape(label)}\s*", "", text, flags=re.IGNORECASE).strip()
-    return value or None
+def _empty_result() -> dict:
+    return {
+        "player_name": None,
+        "position": None,
+        "height": None,
+        "weight": None,
+        "team": None,
+        "pts": None,
+        "reb": None,
+        "ast": None,
+        "fg_pct": None,
+        "three_pct": None,
+        "ft_pct": None,
+        "games": None,
+        "minutes": None,
+        "source_url": None,
+        "confidence": 0.0,
+    }
 
 
 def _to_float(value: str | None) -> float | None:
@@ -41,148 +45,182 @@ def _to_int(value: str | None) -> int | None:
         return None
 
 
-def _extract_recent_per_game_stats(soup: BeautifulSoup) -> dict[str, Any]:
-    table = soup.select_one("table#per_game")
+def _extract_stats_and_team(soup: BeautifulSoup) -> tuple[dict, str | None]:
+    table = soup.find("table", {"id": "per_game_stats"}) or soup.find("table", {"id": "per_game"})
+    empty_stats = {
+        "pts": None,
+        "reb": None,
+        "ast": None,
+        "fg_pct": None,
+        "three_pct": None,
+        "ft_pct": None,
+        "games": None,
+        "minutes": None,
+    }
     if table is None:
-        return {
-            "pts": None,
-            "reb": None,
-            "ast": None,
-            "fg_pct": None,
-            "three_pct": None,
-            "ft_pct": None,
-            "games": None,
-            "minutes": None,
-        }
+        return empty_stats, None
 
-    rows = table.select("tbody tr")
     candidate = None
-    for row in rows:
-        if "thead" in row.get("class", []):
+    tbody = table.find("tbody")
+    if tbody is None:
+        return empty_stats, None
+
+    for row in tbody.find_all("tr"):
+        classes = row.get("class", [])
+        if "thead" in classes:
             continue
-        season = row.select_one("th[data-stat='season']")
-        if season is None:
+        row_text = row.get_text(" ", strip=True).lower()
+        if "did not play" in row_text:
             continue
-        season_text = season.get_text(strip=True).lower()
-        if season_text in {"career", ""}:
+        season_cell = (
+            row.find("th", {"data-stat": "year_id"})
+            or row.find("th", {"data-stat": "season"})
+            or row.find(["th", "td"], {"data-stat": "year_id"})
+        )
+        if season_cell is None:
             continue
         candidate = row
 
     if candidate is None:
-        return {
-            "pts": None,
-            "reb": None,
-            "ast": None,
-            "fg_pct": None,
-            "three_pct": None,
-            "ft_pct": None,
-            "games": None,
-            "minutes": None,
-        }
+        return empty_stats, None
 
-    def get_stat(data_stat: str) -> str | None:
-        cell = candidate.select_one(f"td[data-stat='{data_stat}']")
+    def get_stat(stat_name: str) -> str | None:
+        cell = candidate.find("td", {"data-stat": stat_name})
         if cell is None:
             return None
-        return cell.get_text(strip=True) or None
+        text = cell.get_text(strip=True)
+        return text if text else None
 
-    return {
+    team = get_stat("team_name_abbr") or get_stat("team_id")
+    stats = {
         "pts": _to_float(get_stat("pts_per_g")),
         "reb": _to_float(get_stat("trb_per_g")),
         "ast": _to_float(get_stat("ast_per_g")),
         "fg_pct": _to_float(get_stat("fg_pct")),
         "three_pct": _to_float(get_stat("fg3_pct")),
         "ft_pct": _to_float(get_stat("ft_pct")),
-        "games": _to_int(get_stat("g")),
+        "games": _to_int(get_stat("games") or get_stat("g")),
         "minutes": _to_float(get_stat("mp_per_g")),
     }
+    return stats, team
 
 
-async def get_player_stats(player_name: str) -> dict[str, Any]:
-    """Scrape Basketball Reference profile + most recent per-game stats."""
+async def get_player_stats(player_name: str) -> dict:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    result = _empty_result()
     if not player_name.strip():
-        return {"confidence": 0.0}
+        return result
+
+    player_page_pattern = re.compile(r"/players/[a-z]/[a-z0-9'\-]+\.html")
 
     try:
-        results = await search(f"site:basketball-reference.com {player_name} basketball reference", max_results=8)
-        player_url = None
-        for result in results:
-            url = result.get("url", "")
-            if re.search(r"basketball-reference\.com/players/[a-z]/.+\.html", url):
-                player_url = url
-                break
+        search_url = (
+            "https://www.basketball-reference.com/search/search.fcgi?search="
+            f"{player_name.replace(' ', '+')}"
+        )
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            response = await client.get(search_url, headers=headers)
+            if response.status_code != 200:
+                return result
 
-        if not player_url:
-            return {"confidence": 0.0}
+            final_url = str(response.url)
+            player_url = final_url
+            player_html = response.text
 
-        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            response = await client.get(player_url)
-            if response.status_code != 200 or not response.text:
-                return {"confidence": 0.0}
+            if not player_page_pattern.search(final_url):
+                soup_search = BeautifulSoup(response.text, "html.parser")
+                found_link = None
+                for a_tag in soup_search.find_all("a", href=True):
+                    href = a_tag["href"]
+                    if player_page_pattern.search(href):
+                        found_link = urljoin("https://www.basketball-reference.com", href)
+                        break
+                if not found_link:
+                    return result
+                player_response = await client.get(found_link, headers=headers)
+                if player_response.status_code != 200:
+                    return result
+                player_url = str(player_response.url)
+                player_html = player_response.text
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        meta = soup.select_one("div#meta")
-        if meta is None:
-            return {"confidence": 0.0}
+        soup = BeautifulSoup(player_html, "html.parser")
+        name_tag = soup.find("h1", {"itemprop": "name"})
+        name = name_tag.get_text(" ", strip=True) if name_tag else player_name
 
-        name_node = meta.select_one("h1 span")
-        full_name = name_node.get_text(" ", strip=True) if name_node else None
+        meta = soup.find("div", {"id": "meta"})
+        position = None
+        height = None
+        weight = None
+        team = None
 
-        pos = _extract_labeled_value(meta, "Position:")
-        height = _extract_labeled_value(meta, "Shoots:")  # fallback parsing follows
-        if height and ("Shoots:" in height or "shoots" in height.lower()):
-            height = None
+        if meta is not None:
+            for p_tag in meta.find_all("p"):
+                text = p_tag.get_text(" ", strip=True)
+                if position is None and "Position" in text:
+                    match = re.search(r"Position\s*:\s*([A-Za-z\-\s/]+)", text)
+                    if match:
+                        position = match.group(1).strip()
+                if height is None:
+                    h_match = re.search(r"(\d-\d{1,2})", text)
+                    if h_match:
+                        height = h_match.group(1)
+                if weight is None:
+                    w_match = re.search(r"(\d{2,3}lb)", text)
+                    if w_match:
+                        weight = w_match.group(1)
+                if team is None and re.search(r"\bTeam\s*:", text):
+                    t_match = re.search(r"\bTeam\s*:\s*([A-Za-z0-9\.\-\s'&]+)", text)
+                    if t_match:
+                        team = t_match.group(1).strip()
+                if team is None and re.search(r"\bCollege\s*:", text):
+                    c_match = re.search(r"\bCollege\s*:\s*([A-Za-z0-9\.\-\s'&]+)", text)
+                    if c_match:
+                        team = c_match.group(1).strip()
 
-        # Height/weight often appear together in the vitals paragraph.
-        vitals_text = meta.get_text(" ", strip=True)
-        height_match = re.search(r"(\d-\d{1,2})\s*,?\s*(\d{2,3}lb)?", vitals_text)
-        parsed_height = height_match.group(1) if height_match else None
-        parsed_weight = None
-        if height_match and height_match.group(2):
-            parsed_weight = height_match.group(2)
-        else:
-            weight_match = re.search(r"(\d{2,3}lb)", vitals_text)
-            parsed_weight = weight_match.group(1) if weight_match else None
+        stats, stats_team = _extract_stats_and_team(soup)
+        if team is None and stats_team is not None:
+            team = stats_team
 
-        birth_node = meta.select_one("span#necro-birth")
-        birth_date = birth_node.get("data-birth") if birth_node else None
-
-        school = _extract_labeled_value(meta, "College:")
-        team = _extract_labeled_value(meta, "Team:")
-        school_or_team = school or team
-
-        per_game = _extract_recent_per_game_stats(soup)
-
-        data: dict[str, Any] = {
-            "full_name": full_name,
-            "position": pos,
-            "height": parsed_height,
-            "weight": parsed_weight,
-            "birth_date": birth_date,
-            "school_or_team": school_or_team,
-            "per_game": per_game,
+        result = {
+            "player_name": name,
+            "position": position,
+            "height": height,
+            "weight": weight,
+            "team": team,
+            "pts": stats["pts"],
+            "reb": stats["reb"],
+            "ast": stats["ast"],
+            "fg_pct": stats["fg_pct"],
+            "three_pct": stats["three_pct"],
+            "ft_pct": stats["ft_pct"],
+            "games": stats["games"],
+            "minutes": stats["minutes"],
             "source_url": player_url,
+            "confidence": 0.0,
         }
 
-        fields_to_score = [
-            full_name,
-            pos,
-            parsed_height,
-            parsed_weight,
-            birth_date,
-            school_or_team,
-            per_game.get("pts"),
-            per_game.get("reb"),
-            per_game.get("ast"),
-            per_game.get("fg_pct"),
-            per_game.get("three_pct"),
-            per_game.get("ft_pct"),
-            per_game.get("games"),
-            per_game.get("minutes"),
+        score_fields = [
+            result["player_name"],
+            result["position"],
+            result["height"],
+            result["weight"],
+            result["team"],
+            result["pts"],
+            result["reb"],
+            result["ast"],
+            result["fg_pct"],
+            result["three_pct"],
+            result["ft_pct"],
+            result["games"],
+            result["minutes"],
         ]
-        found_count = sum(value is not None for value in fields_to_score)
-        data["confidence"] = round(found_count / len(fields_to_score), 3)
-
-        return data
+        non_null_count = sum(v is not None for v in score_fields)
+        result["confidence"] = round(non_null_count / 13, 3)
+        return result
     except Exception:
-        return {"confidence": 0.0}
+        return _empty_result()
