@@ -23,14 +23,17 @@ function formatStat(value, isPercent = false) {
 
 export default function App() {
   const [playerName, setPlayerName] = useState('')
+  const [teamOrSchool, setTeamOrSchool] = useState('')
   const [loading, setLoading] = useState(false)
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
 
   async function handleSubmit(event) {
     event.preventDefault()
-    const trimmed = playerName.trim()
-    if (!trimmed) return
+    const trimmedPlayer = playerName.trim()
+    const trimmedTeam = teamOrSchool.trim()
+    if (!trimmedPlayer) return
+    const combinedPlayerName = trimmedTeam ? `${trimmedPlayer} ${trimmedTeam}` : trimmedPlayer
 
     setLoading(true)
     setError(null)
@@ -40,7 +43,7 @@ export default function App() {
       const response = await fetch(`${API_URL}/scout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_name: trimmed }),
+        body: JSON.stringify({ player_name: combinedPlayerName }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -81,14 +84,23 @@ export default function App() {
           </p>
         </header>
 
-        <form onSubmit={handleSubmit} className="mb-8 flex flex-col gap-3 sm:flex-row">
+        <form onSubmit={handleSubmit} className="mb-8 flex flex-col gap-3">
           <input
             type="text"
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
-            placeholder="Enter player name (e.g. Cooper Flagg)"
-            className="h-12 flex-1 rounded-lg border border-[#2a2a2a] bg-[#141414] px-4 text-[#ffffff] placeholder:text-[#888888] outline-none transition focus:border-[#f97316] focus:ring-2 focus:ring-[#f97316]/40"
+            placeholder="Player name"
+            className="h-12 w-full rounded-lg border border-[#2a2a2a] bg-[#141414] px-4 text-[#ffffff] placeholder:text-[#888888] outline-none transition focus:border-[#f97316] focus:ring-2 focus:ring-[#f97316]/40"
+            required
           />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <input
+              type="text"
+              value={teamOrSchool}
+              onChange={(e) => setTeamOrSchool(e.target.value)}
+              placeholder="Team or school (optional)"
+              className="h-10 w-full rounded-lg border border-[#2a2a2a] bg-[#141414] px-3 text-sm text-[#ffffff] placeholder:text-[#888888] outline-none transition focus:border-[#f97316] focus:ring-2 focus:ring-[#f97316]/30 sm:max-w-[320px]"
+            />
           <button
             type="submit"
             disabled={loading || !playerName.trim()}
@@ -96,6 +108,7 @@ export default function App() {
           >
             Generate Report
           </button>
+          </div>
         </form>
 
         {loading && (
