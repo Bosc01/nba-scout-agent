@@ -1,37 +1,34 @@
-from __future__ import annotations
-
-import time
-from typing import Any
-
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
+import time, sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 from agents.scout import ScoutAgent
 
-app = FastAPI(title="NBA Scout Agent API")
-agent = ScoutAgent()
-
+app = FastAPI(title="NBA Scout Agent")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ScoutRequest(BaseModel):
     player_name: str
 
-
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "model": ScoutAgent.MODEL}
-
+async def health():
+    return {"status": "ok"}
 
 @app.post("/scout")
-async def scout(request: ScoutRequest) -> dict[str, Any]:
-    player_name = request.player_name.strip()
-    if not player_name:
-        raise HTTPException(status_code=400, detail="player_name must not be empty")
-
-    start = time.perf_counter()
+async def scout(req: ScoutRequest):
+    if not req.player_name.strip():
+        raise HTTPException(status_code=400, detail="Player name required")
+    start = time.time()
     try:
-        report = await agent.generate_report(player_name)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"ScoutAgent failed: {exc}") from exc
-
-    elapsed = time.perf_counter() - start
-    return {**report, "response_time_seconds": round(elapsed, 3)}
+        agent = ScoutAgent()
+        report = await agent.generate_report(req.player_name)
+        report["response_time_seconds"] = round(time.time() - start, 2)
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
