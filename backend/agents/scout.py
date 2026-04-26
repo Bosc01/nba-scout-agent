@@ -118,6 +118,17 @@ Research order:
 Try ALL sources before concluding data is unavailable.
 For each source that returns data, merge into the report.
 Use the highest quality data found across all sources.
+After retrieving stats from any tool, verify the player matches
+by checking:
+1. Does the team/school match what was searched?
+2. Does the position match if known?
+3. Are the stats plausible for the level of play?
+
+If the retrieved player's team does not match the search context,
+discard those stats and set them to null. It is better to show
+null stats than wrong stats from the wrong player.
+
+Wrong data is worse than missing data.
 
 Return ONLY valid JSON. No prose, no markdown fences, no other text.
 Use EXACTLY this schema and these field names (do not invent your own):
