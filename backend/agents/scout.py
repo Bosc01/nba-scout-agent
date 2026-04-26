@@ -4,6 +4,7 @@ import json
 import os
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
@@ -147,6 +148,20 @@ Rules:
 - Strengths/weaknesses must reference specific stats or observations from tools
 - nba_comp must always be attempted when stats exist; null only if truly insufficient data
 - confidence must reflect actual data completeness, not a default"""
+
+    @staticmethod
+    def _normalize_source_url(url: str) -> str:
+        if "duckduckgo.com/l/" not in url or "uddg=" not in url:
+            return url
+        try:
+            parsed = urlparse(url)
+            uddg_values = parse_qs(parsed.query).get("uddg", [])
+            if not uddg_values:
+                return url
+            decoded = unquote(uddg_values[0]).strip()
+            return decoded or url
+        except Exception:
+            return url
 
     @staticmethod
     def _normalize_assistant_blocks(content_blocks: list[Any]) -> list[dict[str, Any]]:
@@ -338,11 +353,11 @@ Rules:
                     for item in result:
                         url = item.get("url") if isinstance(item, dict) else None
                         if isinstance(url, str) and url:
-                            seen_sources.add(url)
+                            seen_sources.add(self._normalize_source_url(url))
                 elif isinstance(result, dict):
                     source_url = result.get("source_url")
                     if isinstance(source_url, str) and source_url:
-                        seen_sources.add(source_url)
+                        seen_sources.add(self._normalize_source_url(source_url))
 
                 tool_results_content.append(
                     {

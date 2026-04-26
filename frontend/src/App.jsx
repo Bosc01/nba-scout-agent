@@ -15,6 +15,22 @@ function formatStat(value, isPercent = false) {
   return String(value)
 }
 
+function isCleanSourceUrl(url) {
+  if (typeof url !== 'string') return false
+  if (!url.startsWith('https://')) return false
+  if (url.includes('duckduckgo.com') || url.includes('camdenliving.com')) return false
+  try {
+    const parsed = new URL(url)
+    if (!parsed.hostname || !parsed.hostname.includes('.')) return false
+    if (parsed.hostname.includes('duckduckgo.com') || parsed.hostname.includes('camdenliving.com')) {
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 export default function App() {
   const [playerName, setPlayerName] = useState('')
   const [loading, setLoading] = useState(false)
@@ -64,6 +80,7 @@ export default function App() {
   ]
 
   const confidence = typeof report?.confidence === 'number' ? report.confidence : 0
+  const cleanSources = (report?.sources ?? []).filter(isCleanSourceUrl)
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] font-[system-ui] text-[#ffffff]">
@@ -188,8 +205,8 @@ export default function App() {
             <div className="mt-6">
               <p className="text-xs text-[#888888]">Sources used by agent</p>
               <div className="mt-2 space-y-1">
-                {(report.sources ?? []).length > 0 ? (
-                  report.sources.map((url, idx) => (
+                {cleanSources.length > 0 ? (
+                  cleanSources.map((url, idx) => (
                     <a
                       key={idx}
                       href={url}
@@ -208,7 +225,6 @@ export default function App() {
 
             <footer className="mt-6 border-t border-[#2a2a2a] pt-4 text-xs text-[#888888]">
               <p>Response time: {report.response_time_seconds ?? '--'}s</p>
-              <p className="mt-1">Powered by Claude</p>
             </footer>
           </section>
         )}
