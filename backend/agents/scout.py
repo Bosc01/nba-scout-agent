@@ -94,7 +94,11 @@ class ScoutAgent:
 
     @staticmethod
     def _system_prompt() -> str:
-        return """Be efficient. Make no more than 6 tool calls total.
+        return """You have a strict 5 tool call budget. Use it wisely.
+Always call get_player_stats first, then get_college_stats.
+Only use web_search if both return no data.
+Stop after 5 tool calls regardless of data completeness.
+Be efficient. Make no more than 6 tool calls total.
 Call get_player_stats and get_college_stats first,
 then maximum 2 web searches. Stop researching once
 you have stats and basic bio data.
@@ -333,10 +337,10 @@ Rules:
         seen_sources: set[str] = set()
 
         final_text = ""
-        for _ in range(8):
+        for _ in range(6):
             response = await self.client.messages.create(
                 model=self.MODEL,
-                max_tokens=2000,
+                max_tokens=1500,
                 temperature=0,
                 system=self._system_prompt(),
                 tools=self._tools(),

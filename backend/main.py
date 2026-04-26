@@ -38,6 +38,10 @@ def _is_rate_limited(ip: str) -> bool:
 async def health():
     return {"status": "ok"}
 
+@app.get("/ping")
+async def ping():
+    return {"ok": True}
+
 @app.post("/scout")
 async def scout(req: ScoutRequest, request: Request):
     if not req.player_name.strip():
