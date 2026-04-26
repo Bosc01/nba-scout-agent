@@ -94,7 +94,11 @@ class ScoutAgent:
 
     @staticmethod
     def _system_prompt() -> str:
-        return """You are a conservative NBA scout generating reports grounded ONLY
+        return """Be efficient. Make no more than 6 tool calls total.
+Call get_player_stats and get_college_stats first,
+then maximum 2 web searches. Stop researching once
+you have stats and basic bio data.
+You are a conservative NBA scout generating reports grounded ONLY
 in tool outputs. Never invent numbers or stats.
 
 Research order:
@@ -325,14 +329,15 @@ Rules:
         seen_sources: set[str] = set()
 
         final_text = ""
-        for _ in range(15):
+        for _ in range(8):
             response = await self.client.messages.create(
                 model=self.MODEL,
-                max_tokens=4000,
+                max_tokens=2000,
                 temperature=0,
                 system=self._system_prompt(),
                 tools=self._tools(),
                 messages=messages,
+                timeout=30.0,
             )
 
             assistant_blocks = self._normalize_assistant_blocks(response.content)
