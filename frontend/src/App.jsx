@@ -6,7 +6,13 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 function getConfidenceStyle(confidence) {
   if (confidence > 0.7) return 'bg-[#22c55e]/20 text-[#22c55e] border-[#22c55e]/40'
   if (confidence >= 0.4) return 'bg-[#eab308]/20 text-[#eab308] border-[#eab308]/40'
-  return 'bg-[#ef4444]/20 text-[#ef4444] border-[#ef4444]/40'
+  return 'bg-[#888888]/20 text-[#cfcfcf] border-[#888888]/40'
+}
+
+function getProfileLabel(confidence) {
+  if (confidence >= 0.7) return 'Full Profile'
+  if (confidence >= 0.4) return 'Partial Profile'
+  return 'Limited Data'
 }
 
 function formatStat(value, isPercent = false) {
@@ -122,7 +128,7 @@ export default function App() {
                     confidence
                   )}`}
                 >
-                  Confidence: {Math.round(confidence * 100)}%
+                  {getProfileLabel(confidence)}
                 </span>
               </div>
             </div>
