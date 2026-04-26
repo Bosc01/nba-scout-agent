@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import './App.css'
 
-const API_URL = 'http://localhost:8000/scout'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function getConfidenceStyle(confidence) {
   if (confidence > 0.7) return 'bg-[#22c55e]/20 text-[#22c55e] border-[#22c55e]/40'
@@ -31,7 +31,7 @@ export default function App() {
     setReport(null)
 
     try {
-      const response = await fetch(API_URL, {
+      const response = await fetch(`${API_URL}/scout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_name: trimmed }),
