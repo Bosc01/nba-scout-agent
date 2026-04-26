@@ -46,8 +46,12 @@ def _to_int(value: str | None) -> int | None:
         return None
 
 
-def _extract_stats_and_team(soup: BeautifulSoup) -> tuple[dict, str | None]:
-    table = soup.find("table", {"id": "per_game_stats"}) or soup.find("table", {"id": "per_game"})
+def _extract_stats_from_table(soup: BeautifulSoup, table_ids: list[str]) -> tuple[dict, str | None]:
+    table = None
+    for table_id in table_ids:
+        table = soup.find("table", {"id": table_id})
+        if table is not None:
+            break
     empty_stats = {
         "pts": None,
         "reb": None,
@@ -61,36 +65,32 @@ def _extract_stats_and_team(soup: BeautifulSoup) -> tuple[dict, str | None]:
     if table is None:
         return empty_stats, None
 
-    candidate = None
     tbody = table.find("tbody")
     if tbody is None:
         return empty_stats, None
 
+    valid_rows = []
     for row in tbody.find_all("tr"):
         classes = row.get("class", [])
-        if "thead" in classes:
+        if "thead" in classes or "partial_table" in classes:
             continue
         row_text = row.get_text(" ", strip=True).lower()
         if "did not play" in row_text:
             continue
-        season_cell = (
-            row.find("th", {"data-stat": "year_id"})
-            or row.find("th", {"data-stat": "season"})
-            or row.find(["th", "td"], {"data-stat": "year_id"})
-        )
-        if season_cell is None:
-            continue
-        candidate = row
+        valid_rows.append(row)
 
-    if candidate is None:
+    if not valid_rows:
         return empty_stats, None
+    candidate = valid_rows[-1]
 
     def get_stat(stat_name: str) -> str | None:
         cell = candidate.find("td", {"data-stat": stat_name})
         if cell is None:
             return None
         text = cell.get_text(strip=True)
-        return text if text else None
+        if not text or text == "--":
+            return None
+        return text
 
     team = get_stat("team_name_abbr") or get_stat("team_id")
     stats = {
@@ -183,7 +183,7 @@ async def get_player_stats(player_name: str) -> dict:
                     if c_match:
                         team = c_match.group(1).strip()
 
-        stats, stats_team = _extract_stats_and_team(soup)
+        stats, stats_team = _extract_stats_from_table(soup, ["per_game_stats", "per_game"])
         if team is None and stats_team is not None:
             team = stats_team
 
@@ -299,7 +299,7 @@ async def get_college_stats(player_name: str) -> dict:
                     if s_match:
                         team = s_match.group(1).strip()
 
-        stats, stats_team = _extract_stats_and_team(soup)
+        stats, stats_team = _extract_stats_from_table(soup, ["players_per_game"])
         if team is None and stats_team is not None:
             team = stats_team
 
