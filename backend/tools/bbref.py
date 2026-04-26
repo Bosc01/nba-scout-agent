@@ -23,6 +23,7 @@ def _empty_result() -> dict:
         "games": None,
         "minutes": None,
         "source_url": None,
+        "level": None,
         "confidence": 0.0,
     }
 
@@ -201,6 +202,7 @@ async def get_player_stats(player_name: str) -> dict:
             "games": stats["games"],
             "minutes": stats["minutes"],
             "source_url": player_url,
+            "level": "pro",
             "confidence": 0.0,
         }
 
@@ -224,3 +226,118 @@ async def get_player_stats(player_name: str) -> dict:
         return result
     except Exception:
         return _empty_result()
+
+
+async def get_college_stats(player_name: str) -> dict:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    result = _empty_result()
+    result["level"] = "college"
+    if not player_name.strip():
+        return result
+
+    try:
+        search_url = (
+            "https://www.sports-reference.com/cbb/search/search.fcgi?search="
+            f"{player_name.replace(' ', '+')}"
+        )
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            response = await client.get(search_url, headers=headers)
+            if response.status_code != 200:
+                return result
+
+            final_url = str(response.url)
+            player_url = final_url
+            player_html = response.text
+
+            if "/cbb/players/" not in final_url:
+                soup_search = BeautifulSoup(response.text, "html.parser")
+                found_link = None
+                for a_tag in soup_search.find_all("a", href=True):
+                    href = a_tag["href"]
+                    if "/cbb/players/" in href and href.endswith(".html"):
+                        found_link = urljoin("https://www.sports-reference.com", href)
+                        break
+                if not found_link:
+                    return result
+                player_response = await client.get(found_link, headers=headers)
+                if player_response.status_code != 200:
+                    return result
+                player_url = str(player_response.url)
+                player_html = player_response.text
+
+        soup = BeautifulSoup(player_html, "html.parser")
+        name_tag = soup.find("h1", {"itemprop": "name"})
+        name = name_tag.get_text(" ", strip=True) if name_tag else player_name
+
+        meta = soup.find("div", {"id": "meta"})
+        position = None
+        height = None
+        weight = None
+        team = None
+        if meta is not None:
+            for p_tag in meta.find_all("p"):
+                text = p_tag.get_text(" ", strip=True)
+                if position is None and "Position" in text:
+                    match = re.search(r"Position\s*:\s*([A-Za-z\-\s/]+)", text)
+                    if match:
+                        position = match.group(1).strip()
+                if height is None:
+                    h_match = re.search(r"(\d-\d{1,2})", text)
+                    if h_match:
+                        height = h_match.group(1)
+                if weight is None:
+                    w_match = re.search(r"(\d{2,3}lb)", text)
+                    if w_match:
+                        weight = w_match.group(1)
+                if team is None and "School" in text:
+                    s_match = re.search(r"School\s*:\s*([A-Za-z0-9\.\-\s'&]+)", text)
+                    if s_match:
+                        team = s_match.group(1).strip()
+
+        stats, stats_team = _extract_stats_and_team(soup)
+        if team is None and stats_team is not None:
+            team = stats_team
+
+        result = {
+            "player_name": name,
+            "position": position,
+            "height": height,
+            "weight": weight,
+            "team": team,
+            "pts": stats["pts"],
+            "reb": stats["reb"],
+            "ast": stats["ast"],
+            "fg_pct": stats["fg_pct"],
+            "three_pct": stats["three_pct"],
+            "ft_pct": stats["ft_pct"],
+            "games": stats["games"],
+            "minutes": stats["minutes"],
+            "source_url": player_url,
+            "level": "college",
+            "confidence": 0.0,
+        }
+        score_fields = [
+            result["player_name"],
+            result["position"],
+            result["height"],
+            result["weight"],
+            result["team"],
+            result["pts"],
+            result["reb"],
+            result["ast"],
+            result["fg_pct"],
+            result["three_pct"],
+            result["ft_pct"],
+            result["games"],
+            result["minutes"],
+        ]
+        non_null_count = sum(v is not None for v in score_fields)
+        result["confidence"] = round(non_null_count / 13, 3)
+        return result
+    except Exception:
+        return _empty_result() | {"level": "college"}

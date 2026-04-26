@@ -8,7 +8,9 @@ from typing import Any
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
-from tools.bbref import get_player_stats
+from tools.bbref import get_college_stats, get_player_stats
+from tools.euroleague import get_euroleague_stats
+from tools.fiba import get_fiba_profile
 from tools.search import search
 
 load_dotenv(override=True)
@@ -23,6 +25,9 @@ class ScoutAgent:
         self.tool_call_counts: dict[str, int] = {
             "web_search": 0,
             "get_player_stats": 0,
+            "get_college_stats": 0,
+            "get_euroleague_stats": 0,
+            "get_fiba_profile": 0,
         }
         self.tool_calls: list[dict[str, Any]] = []
 
@@ -51,6 +56,39 @@ class ScoutAgent:
                     "required": ["player_name"],
                 },
             },
+            {
+                "name": "get_college_stats",
+                "description": "Get college basketball stats from Sports Reference",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "player_name": {"type": "string"},
+                    },
+                    "required": ["player_name"],
+                },
+            },
+            {
+                "name": "get_euroleague_stats",
+                "description": "Get Euroleague professional stats",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "player_name": {"type": "string"},
+                    },
+                    "required": ["player_name"],
+                },
+            },
+            {
+                "name": "get_fiba_profile",
+                "description": "Get FIBA international basketball profile",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "player_name": {"type": "string"},
+                    },
+                    "required": ["player_name"],
+                },
+            },
         ]
 
     @staticmethod
@@ -59,10 +97,14 @@ class ScoutAgent:
 in tool outputs. Never invent numbers or stats.
 
 Research order:
-1. ALWAYS call get_player_stats first with the exact player name
-2. Then call web_search with: '{player_name} NBA draft profile scouting'
-3. Then call web_search with: '{player_name} basketball stats highlights'
-4. Synthesize ALL tool results into the report
+1. Call get_player_stats (NBA/pro)
+2. Call get_college_stats (college)
+3. Call get_euroleague_stats (international pro)
+4. Call get_fiba_profile (international)
+5. Use web_search for anything still missing
+Try ALL sources before concluding data is unavailable.
+For each source that returns data, merge into the report.
+Use the highest quality data found across all sources.
 
 Return ONLY valid JSON. No prose, no markdown fences, no other text.
 Use EXACTLY this schema and these field names (do not invent your own):
@@ -219,6 +261,24 @@ Rules:
                 self.tool_calls.append({"tool": "get_player_stats", "player_name": player_name})
                 return await get_player_stats(player_name=player_name)
 
+            if tool_name == "get_college_stats":
+                player_name = str(tool_input.get("player_name", "")).strip()
+                self.tool_call_counts["get_college_stats"] += 1
+                self.tool_calls.append({"tool": "get_college_stats", "player_name": player_name})
+                return await get_college_stats(player_name=player_name)
+
+            if tool_name == "get_euroleague_stats":
+                player_name = str(tool_input.get("player_name", "")).strip()
+                self.tool_call_counts["get_euroleague_stats"] += 1
+                self.tool_calls.append({"tool": "get_euroleague_stats", "player_name": player_name})
+                return await get_euroleague_stats(player_name=player_name)
+
+            if tool_name == "get_fiba_profile":
+                player_name = str(tool_input.get("player_name", "")).strip()
+                self.tool_call_counts["get_fiba_profile"] += 1
+                self.tool_calls.append({"tool": "get_fiba_profile", "player_name": player_name})
+                return await get_fiba_profile(player_name=player_name)
+
         except Exception as exc:
             return {"error": f"Tool execution failed: {exc}"}
 
@@ -229,7 +289,13 @@ Rules:
         if not player_name:
             return self._normalize_report({}, "", set())
 
-        self.tool_call_counts = {"web_search": 0, "get_player_stats": 0}
+        self.tool_call_counts = {
+            "web_search": 0,
+            "get_player_stats": 0,
+            "get_college_stats": 0,
+            "get_euroleague_stats": 0,
+            "get_fiba_profile": 0,
+        }
         self.tool_calls = []
 
         messages: list[dict[str, Any]] = [
