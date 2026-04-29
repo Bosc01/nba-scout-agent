@@ -55,11 +55,21 @@ async def get_fiba_profile(player_name: str) -> dict:
     try:
         results = await search(f"{player_name} FIBA basketball profile stats", max_results=8)
         profile_url = None
+        fallback_title = None
         for item in results:
             url = str(item.get("url", ""))
             if "fiba" in url.lower():
                 profile_url = url
+                fallback_title = str(item.get("title", "")) if isinstance(item, dict) else ""
                 break
+        if not profile_url:
+            backup_results = await search(f"site:fiba.basketball {player_name}", max_results=8)
+            for item in backup_results:
+                url = str(item.get("url", ""))
+                if "fiba.basketball" in url.lower():
+                    profile_url = url
+                    fallback_title = str(item.get("title", "")) if isinstance(item, dict) else ""
+                    break
         if not profile_url:
             return result
 
@@ -75,16 +85,28 @@ async def get_fiba_profile(player_name: str) -> dict:
         soup = BeautifulSoup(response.text, "html.parser")
         page_text = soup.get_text(" ", strip=True)
         name_node = soup.find("h1") or soup.find("title")
-        name = name_node.get_text(" ", strip=True) if name_node else player_name
+        name = name_node.get_text(" ", strip=True) if name_node else None
+        if not name and fallback_title:
+            name = fallback_title.split("|")[0].strip()
+        if not name:
+            name = player_name
 
         pos_match = re.search(r"\bPosition\b[:\s\-]*([A-Za-z\-\s/]+)", page_text)
         height_match = re.search(r"(\d-\d{1,2})", page_text)
         weight_match = re.search(r"(\d{2,3}\s?(?:kg|lb|lbs))", page_text, flags=re.IGNORECASE)
-        team_match = re.search(r"\bTeam\b[:\s\-]*([A-Za-z0-9\.\-\s'&]+)", page_text)
+        team_match = re.search(r"\bTeam\b[:\s\-]*([A-Za-z0-9\.\-\s'&]{2,50})", page_text)
+        if not team_match:
+            team_match = re.search(r"\bClub\b[:\s\-]*([A-Za-z0-9\.\-\s'&]{2,50})", page_text)
         pts_match = re.search(r"\bPTS\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
         reb_match = re.search(r"\bREB\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
         ast_match = re.search(r"\bAST\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
         games_match = re.search(r"\bGP\b\s*([0-9]+)", page_text) or re.search(r"\bGames\b\s*([0-9]+)", page_text)
+        if not pts_match:
+            pts_match = re.search(r"\bPoints\b[:\s\-]*([0-9]+(?:\.[0-9]+)?)", page_text)
+        if not reb_match:
+            reb_match = re.search(r"\bRebounds\b[:\s\-]*([0-9]+(?:\.[0-9]+)?)", page_text)
+        if not ast_match:
+            ast_match = re.search(r"\bAssists\b[:\s\-]*([0-9]+(?:\.[0-9]+)?)", page_text)
 
         result.update(
             {
@@ -92,7 +114,11 @@ async def get_fiba_profile(player_name: str) -> dict:
                 "position": pos_match.group(1).strip() if pos_match else None,
                 "height": height_match.group(1) if height_match else None,
                 "weight": weight_match.group(1) if weight_match else None,
-                "team": team_match.group(1).strip() if team_match else None,
+                "team": (
+                    team_match.group(1).strip()
+                    if team_match and "Career Stats" not in team_match.group(1)
+                    else None
+                ),
                 "pts": _to_float(pts_match.group(1) if pts_match else None),
                 "reb": _to_float(reb_match.group(1) if reb_match else None),
                 "ast": _to_float(ast_match.group(1) if ast_match else None),
@@ -112,6 +138,9 @@ async def get_fiba_profile(player_name: str) -> dict:
             result["games"],
         ]
         result["confidence"] = round(sum(v is not None for v in score_fields) / 13, 3)
+        if result["confidence"] == 0.0 and result["source_url"]:
+            result["player_name"] = player_name
+            result["confidence"] = round(1 / 13, 3)
         return result
     except Exception:
         return result

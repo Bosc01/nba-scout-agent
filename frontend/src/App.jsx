@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -21,20 +21,30 @@ function formatStat(value, isPercent = false) {
   return String(value)
 }
 
+function formatDraftProjectionRound(round) {
+  if (!round) return '--'
+  if (round === 'Lottery') return 'Lottery Pick'
+  if (round === 'Late First') return 'Late First Pick'
+  if (round === 'Second Round') return 'Second Round Pick'
+  if (round === 'Undrafted') return 'Undrafted'
+  if (round === 'Too Early To Project') return 'Too Early To Project'
+  return round
+}
+
 export default function App() {
   const [playerName, setPlayerName] = useState('')
   const [teamOrSchool, setTeamOrSchool] = useState('')
   const [loading, setLoading] = useState(false)
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
+  const [copied, setCopied] = useState(false)
+  const didAutoRunDeepLink = useRef(false)
 
-  async function handleSubmit(event) {
-    event.preventDefault()
-    const trimmedPlayer = playerName.trim()
-    const trimmedTeam = teamOrSchool.trim()
+  async function generateReport(nextPlayerName, nextTeamOrSchool) {
+    const trimmedPlayer = String(nextPlayerName ?? '').trim()
+    const trimmedTeam = String(nextTeamOrSchool ?? '').trim()
     if (!trimmedPlayer) return
     const combinedPlayerName = trimmedTeam ? `${trimmedPlayer} ${trimmedTeam}` : trimmedPlayer
-
     setLoading(true)
     setError(null)
     setReport(null)
@@ -56,6 +66,41 @@ export default function App() {
       setLoading(false)
     }
   }
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    await generateReport(playerName, teamOrSchool)
+  }
+
+  async function handleShare() {
+    if (!report?.player_name) return
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.set('player', report.player_name)
+      await navigator.clipboard.writeText(url.toString())
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (e) {
+      setCopied(false)
+    }
+  }
+
+  useEffect(() => {
+    if (didAutoRunDeepLink.current) return
+    // React StrictMode (dev) can mount/unmount twice; keep a global guard too.
+    if (typeof window !== 'undefined' && window.__nbaScoutDeepLinkAutoRun) return
+    didAutoRunDeepLink.current = true
+    if (typeof window !== 'undefined') window.__nbaScoutDeepLinkAutoRun = true
+
+    const params = new URLSearchParams(window.location.search)
+    const sharedPlayer = params.get('player')
+    if (!sharedPlayer || !sharedPlayer.trim()) return
+
+    const decodedPlayer = sharedPlayer.trim()
+    setPlayerName(decodedPlayer)
+    setTeamOrSchool('')
+    void generateReport(decodedPlayer, '')
+  }, [])
 
   const stats = [
     { label: 'PTS', value: formatStat(report?.stats?.pts) },
@@ -129,7 +174,23 @@ export default function App() {
         {report && !loading && (
           <section className="rounded-xl border border-[#2a2a2a] bg-[#141414] p-6">
             <div className="mb-5 border-b border-[#2a2a2a] pb-5">
-              <h2 className="text-3xl font-semibold text-[#ffffff]">{report.player_name ?? '--'}</h2>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <h2 className="text-3xl font-semibold text-[#ffffff]">{report.player_name ?? '--'}</h2>
+                <div className="relative pt-1">
+                  <button
+                    type="button"
+                    onClick={handleShare}
+                    className="rounded-md border border-[#2a2a2a] bg-[#141414] px-3 py-1 text-xs font-semibold text-[#888888] transition hover:border-[#3a3a3a] hover:text-[#ffffff]"
+                  >
+                    Share
+                  </button>
+                  {copied && (
+                    <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 rounded-md border border-[#2a2a2a] bg-[#101010] px-2 py-1 text-[10px] font-semibold text-[#888888]">
+                      Copied!
+                    </span>
+                  )}
+                </div>
+              </div>
               <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[#f97316]">
                 <span>{report.position ?? '--'}</span>
                 <span>{report.team ?? '--'}</span>
@@ -203,6 +264,24 @@ export default function App() {
               <p className="mt-1 text-2xl font-semibold text-[#ffffff]">{report.nba_comp?.name ?? '--'}</p>
               <p className="mt-2 text-sm text-[#888888]">{report.nba_comp?.reasoning ?? '--'}</p>
             </div>
+
+            {report.draft_projection !== null && (
+              <div className="mt-6 rounded-lg border border-[#f97316]/50 bg-[#f97316]/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-[#f97316]">DRAFT PROJECTION</p>
+                <p className="mt-1 text-2xl font-semibold text-[#ffffff]">
+                  {formatDraftProjectionRound(report.draft_projection?.round)}
+                  {report.draft_projection?.year !== null &&
+                  report.draft_projection?.year !== undefined ? (
+                    <span className="text-[#ffffff]/90"> ({report.draft_projection?.year})</span>
+                  ) : null}
+                </p>
+                <p className="mt-2 text-sm text-[#888888]">
+                  {report.draft_projection?.notes?.trim()
+                    ? report.draft_projection?.notes
+                    : '--'}
+                </p>
+              </div>
+            )}
 
             <footer className="mt-6 border-t border-[#2a2a2a] pt-4 text-xs text-[#888888]">
               <p>Response time: {report.response_time_seconds ?? '--'}s</p>

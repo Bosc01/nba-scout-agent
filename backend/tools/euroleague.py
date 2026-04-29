@@ -57,11 +57,11 @@ async def get_euroleague_stats(player_name: str) -> dict:
         player_url = None
         for item in results:
             url = str(item.get("url", ""))
-            if "euroleague.net" in url:
+            if "euroleague.net" in url or "euroleaguebasketball.net" in url:
                 player_url = url
                 break
         if not player_url:
-            return {}
+            return result
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -70,7 +70,7 @@ async def get_euroleague_stats(player_name: str) -> dict:
         async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
             response = await client.get(player_url, headers=headers)
             if response.status_code != 200 or not response.text:
-                return {}
+                return result
 
         soup = BeautifulSoup(response.text, "html.parser")
         page_text = soup.get_text(" ", strip=True)
@@ -108,4 +108,4 @@ async def get_euroleague_stats(player_name: str) -> dict:
         result["confidence"] = round(sum(v is not None for v in score_fields) / 13, 3)
         return result
     except Exception:
-        return {}
+        return result

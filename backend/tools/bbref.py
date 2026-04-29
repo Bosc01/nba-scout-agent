@@ -40,6 +40,38 @@ def _to_float(value: str | None) -> float | None:
 def _to_int(value: str | None) -> int | None:
     if value is None or value == "":
         return None
+
+
+def _normalize_name_tokens(name: str) -> list[str]:
+    cleaned = re.sub(r"[^a-zA-Z\s]", " ", name).lower()
+    return [t for t in cleaned.split() if t]
+
+
+def _is_same_player(requested_name: str, found_name: str) -> bool:
+    req_tokens = _normalize_name_tokens(requested_name)
+    found_tokens = _normalize_name_tokens(found_name)
+    if not req_tokens or not found_tokens:
+        return False
+    if req_tokens[-1] != found_tokens[-1]:
+        return False
+    return req_tokens[0][0] == found_tokens[0][0]
+
+
+def _url_matches_requested_player(url: str, requested_name: str) -> bool:
+    tokens = _normalize_name_tokens(requested_name)
+    if not tokens:
+        return False
+    last_name = tokens[-1]
+    first_name = tokens[0]
+    slug = url.lower()
+    if last_name in slug:
+        return True
+    # Basketball Reference slugs abbreviate surnames (e.g. risacza01).
+    if len(last_name) >= 5 and last_name[:5] in slug:
+        return True
+    if len(last_name) >= 4 and last_name[:4] in slug and first_name[:1] in slug:
+        return True
+    return False
     try:
         return int(float(value))
     except (TypeError, ValueError):
@@ -147,11 +179,18 @@ async def get_player_stats(player_name: str) -> dict:
                 if player_response.status_code != 200:
                     return result
                 player_url = str(player_response.url)
+                if not _url_matches_requested_player(player_url, player_name):
+                    return result
                 player_html = player_response.text
 
         soup = BeautifulSoup(player_html, "html.parser")
         name_tag = soup.find("h1", {"itemprop": "name"})
-        name = name_tag.get_text(" ", strip=True) if name_tag else player_name
+        name = name_tag.get_text(" ", strip=True) if name_tag else None
+        if name is None:
+            title_tag = soup.find("title")
+            name = title_tag.get_text(" ", strip=True).split(" Stats", 1)[0].strip() if title_tag else player_name
+        if not _is_same_player(player_name, name):
+            return result
 
         meta = soup.find("div", {"id": "meta"})
         position = None
@@ -254,6 +293,9 @@ async def get_college_stats(player_name: str) -> dict:
             player_url = final_url
             player_html = response.text
 
+            if "/cbb/players/" in final_url and not _url_matches_requested_player(final_url, player_name):
+                return result
+
             if "/cbb/players/" not in final_url:
                 soup_search = BeautifulSoup(response.text, "html.parser")
                 found_link = None
@@ -268,11 +310,18 @@ async def get_college_stats(player_name: str) -> dict:
                 if player_response.status_code != 200:
                     return result
                 player_url = str(player_response.url)
+                if not _url_matches_requested_player(player_url, player_name):
+                    return result
                 player_html = player_response.text
 
         soup = BeautifulSoup(player_html, "html.parser")
         name_tag = soup.find("h1", {"itemprop": "name"})
-        name = name_tag.get_text(" ", strip=True) if name_tag else player_name
+        name = name_tag.get_text(" ", strip=True) if name_tag else None
+        if name is None:
+            title_tag = soup.find("title")
+            name = title_tag.get_text(" ", strip=True).split(" Stats", 1)[0].strip() if title_tag else player_name
+        if not _is_same_player(player_name, name):
+            return result
 
         meta = soup.find("div", {"id": "meta"})
         position = None

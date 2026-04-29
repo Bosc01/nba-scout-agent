@@ -159,6 +159,11 @@ Use EXACTLY this schema and these field names (do not invent your own):
     "name": string | null,       // REQUIRED if any data exists — pick the closest current/recent NBA player
     "reasoning": string          // REQUIRED — explain WHY using specific evidence (stats, role, archetype)
   },
+  "draft_projection": {
+    "year": integer | null,
+    "round": string | null,     // e.g. "Lottery", "Late First", "Second Round", "Undrafted"
+    "notes": string             // brief explanation of why this projection tier fits
+  },
   "confidence": number,          // 0.0-1.0, honest assessment of data completeness
   "confidence_notes": string,    // brief note on what's confident and what's uncertain
   "sources": [string, ...]       // URLs from tool results
@@ -170,6 +175,14 @@ Rules:
 - If a field has no data from tools, set to null (or [] for lists, "" for nba_comp.reasoning only when no data at all)
 - Strengths/weaknesses must reference specific stats or observations from tools
 - nba_comp must always be attempted when stats exist; null only if truly insufficient data
+- Always include a draft_projection based on the data found.
+  Use these tiers:
+  - Lottery (top 14)
+  - Late First (15-30)
+  - Second Round
+  - Undrafted
+  - Too Early To Project for high school/freshman players.
+  Base this on stats, physical profile, and any draft coverage found in web searches.
 - confidence must reflect actual data completeness, not a default"""
 
     @staticmethod
@@ -258,6 +271,7 @@ Rules:
             "strengths": [],
             "weaknesses": [],
             "nba_comp": {"name": None, "reasoning": ""},
+            "draft_projection": None,
             "confidence": 0.0,
             "confidence_notes": "Limited data available from tools.",
             "sources": [],
@@ -272,6 +286,26 @@ Rules:
         report["nba_comp"] = default["nba_comp"] | (
             raw.get("nba_comp", {}) if isinstance(raw.get("nba_comp"), dict) else {}
         )
+        draft_projection_raw = raw.get("draft_projection")
+        if isinstance(draft_projection_raw, dict):
+            year_val = draft_projection_raw.get("year")
+            draft_year: int | None
+            if isinstance(year_val, int):
+                draft_year = year_val
+            elif isinstance(year_val, float):
+                draft_year = int(year_val)
+            elif isinstance(year_val, str):
+                year_str = year_val.strip()
+                draft_year = int(year_str) if year_str.isdigit() else None
+            else:
+                draft_year = None
+
+            round_val = draft_projection_raw.get("round")
+            draft_round = round_val if (round_val is None or isinstance(round_val, str)) else str(round_val)
+            notes_val = draft_projection_raw.get("notes")
+            draft_notes = notes_val if isinstance(notes_val, str) else str(notes_val or "")
+
+            report["draft_projection"] = {"year": draft_year, "round": draft_round, "notes": draft_notes}
         report["strengths"] = [str(item) for item in raw.get("strengths", []) if isinstance(item, str)]
         report["weaknesses"] = [str(item) for item in raw.get("weaknesses", []) if isinstance(item, str)]
         report["confidence"] = self._clamp_confidence(raw.get("confidence"))
