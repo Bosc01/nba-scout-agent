@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,6 +16,10 @@ app.add_middleware(
 
 class ScoutRequest(BaseModel):
     player_name: str
+
+class CompareRequest(BaseModel):
+    player_one: str
+    player_two: str
 
 
 RATE_LIMIT_MAX_REQUESTS = 3
@@ -58,5 +63,30 @@ async def scout(req: ScoutRequest, request: Request):
         report = await agent.generate_report(req.player_name)
         report["response_time_seconds"] = round(time.time() - start, 2)
         return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/compare")
+async def compare(req: CompareRequest, request: Request):
+    if not req.player_one.strip() or not req.player_two.strip():
+        raise HTTPException(status_code=400, detail="Both player names are required")
+    client_ip = request.client.host if request.client else "unknown"
+    if _is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Please try again later.",
+        )
+    start = time.time()
+    try:
+        report1, report2 = await asyncio.gather(
+            ScoutAgent().generate_report(req.player_one),
+            ScoutAgent().generate_report(req.player_two),
+        )
+        return {
+            "player_one": report1,
+            "player_two": report2,
+            "response_time_seconds": round(time.time() - start, 2),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

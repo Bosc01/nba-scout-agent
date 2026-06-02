@@ -450,6 +450,72 @@ async def get_college_stats(player_name: str) -> dict:
         return _empty_result() | {"level": "college"}
 
 
+# ---------------------------------------------------------------------------
+# Wingspan
+# ---------------------------------------------------------------------------
+
+def _parse_wingspan_from_text(text: str) -> str | None:
+    """Extract a wingspan string (e.g. '7-1') from arbitrary text."""
+
+    def _fmt(feet: int, inches: float) -> str | None:
+        if not (5 <= feet <= 9 and 0 <= inches < 12):
+            return None
+        return f"{feet}-{int(inches)}" if inches == int(inches) else f"{feet}-{inches:.1f}"
+
+    # "6'11" wingspan" / "6′11.5″" (with various quote chars)
+    m = re.search(
+        r"(\d+)\s*['''′]\s*(\d+(?:\.\d+)?)\s*[\"″]?\s*(?:wingspan|wing[\s\-]span)",
+        text, re.IGNORECASE,
+    )
+    if m:
+        return _fmt(int(m.group(1)), float(m.group(2)))
+
+    # "wingspan of 7 feet 3 inches" / "7 feet 3 inch wingspan"
+    m = re.search(
+        r"(\d+)\s*feet?\s+(\d+(?:\.\d+)?)\s*inch(?:es?)?\s*(?:wingspan|wing[\s\-]span)?",
+        text, re.IGNORECASE,
+    )
+    if m:
+        return _fmt(int(m.group(1)), float(m.group(2)))
+
+    # "87 inches wingspan" / "87.5-inch wingspan"
+    m = re.search(
+        r"(\d+(?:\.\d+)?)\s*[-\s]?inch(?:es?)?\s*(?:wingspan|wing[\s\-]span)",
+        text, re.IGNORECASE,
+    )
+    if m:
+        total = float(m.group(1))
+        if 60 <= total <= 110:
+            return _fmt(int(total // 12), total % 12)
+
+    # "wingspan 7.25 feet" / "7.5-foot wingspan"
+    m = re.search(
+        r"(?:wingspan[^.]{0,10}?)(\d+\.\d+)\s*(?:feet?|ft)\b",
+        text, re.IGNORECASE,
+    )
+    if m:
+        total_feet = float(m.group(1))
+        return _fmt(int(total_feet), (total_feet % 1) * 12)
+
+    return None
+
+
+async def get_wingspan(player_name: str, team: str = "") -> dict:
+    """Search web sources for a player's wingspan measurement."""
+    context = f"{player_name} {team}".strip() if team else player_name
+    for query in [
+        f"{context} wingspan inches NBA draft combine",
+        f"{context} wingspan measurement",
+    ]:
+        results = await search(query=query, max_results=6)
+        for item in results:
+            blob = f"{item.get('title', '')} {item.get('snippet', '')}"
+            ws = _parse_wingspan_from_text(blob)
+            if ws:
+                return {"wingspan": ws, "source_url": item.get("url")}
+    return {"wingspan": None, "source_url": None}
+
+
 async def get_espn_college_stats(player_name: str) -> dict:
     """Fetch college stats from ESPN as a fallback when Sports Reference lacks data."""
     result = _empty_result()

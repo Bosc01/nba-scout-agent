@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
-from tools.bbref import get_college_stats, get_espn_college_stats, get_player_stats
+from tools.bbref import get_college_stats, get_espn_college_stats, get_player_stats, get_wingspan
 from tools.euroleague import get_euroleague_stats
 from tools.fiba import get_fiba_profile
 from tools.search import search
@@ -30,6 +30,7 @@ class ScoutAgent:
             "get_player_stats": 0,
             "get_college_stats": 0,
             "get_espn_college_stats": 0,
+            "get_wingspan": 0,
             "get_euroleague_stats": 0,
             "get_fiba_profile": 0,
         }
@@ -86,6 +87,21 @@ class ScoutAgent:
                 },
             },
             {
+                "name": "get_wingspan",
+                "description": (
+                    "Get player wingspan measurement from draft combine or scouting sources. "
+                    "Call for any player where physical.wingspan is null after other tools run."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "player_name": {"type": "string"},
+                        "team": {"type": "string"},
+                    },
+                    "required": ["player_name"],
+                },
+            },
+            {
                 "name": "get_euroleague_stats",
                 "description": "Get Euroleague professional stats",
                 "input_schema": {
@@ -136,6 +152,10 @@ measurements, strengths, weaknesses, or draft projections
 — extract and use that information directly. Do not return
 null fields when the information exists in search results.
 
+Call get_wingspan for any player where physical.wingspan is
+null after the other tools have run. Pass the player's team
+as the second argument to improve search accuracy.
+
 When shooting percentages are not found in scrapers,
 search for them explicitly:
 web_search: '{player_name} field goal percentage three point percentage stats 2025-26 season'
@@ -178,7 +198,7 @@ Use EXACTLY this schema and these field names (do not invent your own):
   "physical": {
     "height": string | null,    // e.g. "6-9" — copy from get_player_stats.height
     "weight": string | null,    // e.g. "205lb" — copy from get_player_stats.weight
-    "wingspan": string | null   // only if surfaced by web_search; else null
+    "wingspan": string | null   // from get_wingspan tool or web_search snippets; else null
   },
   "stats": {
     "pts": number | null,        // from get_player_stats.pts (per game)
@@ -382,6 +402,13 @@ Rules:
                 self.tool_calls.append({"tool": "get_espn_college_stats", "player_name": player_name})
                 return await get_espn_college_stats(player_name=player_name)
 
+            if tool_name == "get_wingspan":
+                player_name = str(tool_input.get("player_name", "")).strip()
+                team = str(tool_input.get("team", "")).strip()
+                self.tool_call_counts["get_wingspan"] += 1
+                self.tool_calls.append({"tool": "get_wingspan", "player_name": player_name, "team": team})
+                return await get_wingspan(player_name=player_name, team=team)
+
             if tool_name == "get_euroleague_stats":
                 player_name = str(tool_input.get("player_name", "")).strip()
                 self.tool_call_counts["get_euroleague_stats"] += 1
@@ -415,6 +442,7 @@ Rules:
             "get_player_stats": 0,
             "get_college_stats": 0,
             "get_espn_college_stats": 0,
+            "get_wingspan": 0,
             "get_euroleague_stats": 0,
             "get_fiba_profile": 0,
         }
