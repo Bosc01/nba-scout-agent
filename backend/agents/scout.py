@@ -16,6 +16,8 @@ from tools.search import search
 
 load_dotenv(override=True)
 
+_report_cache: dict[str, Any] = {}
+
 
 class ScoutAgent:
     MODEL = "claude-sonnet-4-20250514"
@@ -116,6 +118,15 @@ CRITICAL: If web search snippets contain physical
 measurements, strengths, weaknesses, or draft projections
 — extract and use that information directly. Do not return
 null fields when the information exists in search results.
+
+When shooting percentages are not found in scrapers,
+search for them explicitly:
+web_search: '{player_name} field goal percentage three point percentage stats 2025-26 season'
+
+Also check search snippets for any mention of shooting
+percentages — they are often mentioned in scouting articles.
+Extract numbers like '39.7% on two-point field goals' or
+'22.7% from three' from article text.
 
 For current college players, also search:
 '{player_name} college basketball stats 2025-26'
@@ -370,6 +381,12 @@ Rules:
         if not player_name:
             return self._normalize_report({}, "", set())
 
+        cache_key = player_name.lower()
+        if cache_key in _report_cache:
+            cached = dict(_report_cache[cache_key])
+            cached["cached"] = True
+            return cached
+
         self.tool_call_counts = {
             "web_search": 0,
             "get_player_stats": 0,
@@ -437,4 +454,6 @@ Rules:
             messages.append({"role": "user", "content": tool_results_content})
 
         raw_report = self._safe_json_parse(final_text)
-        return self._normalize_report(raw_report, player_name, seen_sources)
+        report = self._normalize_report(raw_report, player_name, seen_sources)
+        _report_cache[cache_key] = report
+        return report
