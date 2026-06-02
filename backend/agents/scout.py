@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
-from tools.bbref import get_college_stats, get_player_stats
+from tools.bbref import get_college_stats, get_espn_college_stats, get_player_stats
 from tools.euroleague import get_euroleague_stats
 from tools.fiba import get_fiba_profile
 from tools.search import search
@@ -29,6 +29,7 @@ class ScoutAgent:
             "web_search": 0,
             "get_player_stats": 0,
             "get_college_stats": 0,
+            "get_espn_college_stats": 0,
             "get_euroleague_stats": 0,
             "get_fiba_profile": 0,
         }
@@ -62,6 +63,20 @@ class ScoutAgent:
             {
                 "name": "get_college_stats",
                 "description": "Get college basketball stats from Sports Reference",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "player_name": {"type": "string"},
+                    },
+                    "required": ["player_name"],
+                },
+            },
+            {
+                "name": "get_espn_college_stats",
+                "description": (
+                    "Get college basketball stats from ESPN. "
+                    "Use as a fallback when get_college_stats returns null shooting percentages."
+                ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -108,8 +123,10 @@ Research order — follow this exactly:
 1. Call get_player_stats (NBA/pro Basketball Reference)
 2. Call web_search: '{player_name} height weight position team 2026 NBA draft'
 3. Call get_college_stats (Sports Reference CBB)
-4. Call web_search: '{player_name} scouting report strengths weaknesses'
-5. Call web_search: '{player_name} mock draft projection'
+4. If get_college_stats returns null shooting percentages (fg_pct, three_pct, ft_pct),
+   call get_espn_college_stats as a fallback for those percentages.
+5. Call web_search: '{player_name} scouting report strengths weaknesses'
+6. Call web_search: '{player_name} mock draft projection'
 
 Do not wait for scraper tools to succeed before searching
 the web. Run web searches in parallel with scraper results.
@@ -359,6 +376,12 @@ Rules:
                 self.tool_calls.append({"tool": "get_college_stats", "player_name": player_name})
                 return await get_college_stats(player_name=player_name)
 
+            if tool_name == "get_espn_college_stats":
+                player_name = str(tool_input.get("player_name", "")).strip()
+                self.tool_call_counts["get_espn_college_stats"] += 1
+                self.tool_calls.append({"tool": "get_espn_college_stats", "player_name": player_name})
+                return await get_espn_college_stats(player_name=player_name)
+
             if tool_name == "get_euroleague_stats":
                 player_name = str(tool_input.get("player_name", "")).strip()
                 self.tool_call_counts["get_euroleague_stats"] += 1
@@ -391,6 +414,7 @@ Rules:
             "web_search": 0,
             "get_player_stats": 0,
             "get_college_stats": 0,
+            "get_espn_college_stats": 0,
             "get_euroleague_stats": 0,
             "get_fiba_profile": 0,
         }

@@ -6,6 +6,8 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
+from tools.search import search
+
 
 def _empty_result() -> dict:
     return {
@@ -388,5 +390,152 @@ async def get_college_stats(player_name: str) -> dict:
         non_null_count = sum(v is not None for v in score_fields)
         result["confidence"] = round(non_null_count / 13, 3)
         return result
+    except Exception:
+        return _empty_result() | {"level": "college"}
+
+
+async def get_espn_college_stats(player_name: str) -> dict:
+    """Fetch college stats from ESPN as a fallback when Sports Reference lacks data."""
+    result = _empty_result()
+    result["level"] = "college"
+    if not player_name.strip():
+        return result
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    try:
+        # Discover the player's ESPN page via web search
+        query = f"{player_name} ESPN college stats site:espn.com mens-college-basketball player"
+        search_results = await search(query=query, max_results=8)
+
+        player_url: str | None = None
+        for item in search_results:
+            url = str(item.get("url", ""))
+            if "espn.com" in url and "mens-college-basketball" in url and "player" in url:
+                player_url = url
+                break
+
+        if not player_url:
+            # Broaden the search if the strict one found nothing
+            fallback_results = await search(
+                query=f"{player_name} ESPN mens college basketball player stats",
+                max_results=8,
+            )
+            for item in fallback_results:
+                url = str(item.get("url", ""))
+                if "espn.com" in url and ("college-basketball" in url or "ncb" in url) and "player" in url:
+                    player_url = url
+                    break
+
+        if not player_url:
+            return result
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+            response = await client.get(player_url, headers=headers)
+            if response.status_code != 200 or not response.text:
+                return result
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Verify we landed on the right player
+        name_tag = soup.find("h1") or soup.find("title")
+        page_name = name_tag.get_text(" ", strip=True).split("|")[0].strip() if name_tag else ""
+        if page_name and not _is_same_player(player_name, page_name):
+            return result
+
+        result["player_name"] = page_name or player_name
+        result["source_url"] = player_url
+
+        # Bio: position / height / weight
+        page_text = soup.get_text(" ", strip=True)
+        pos_match = re.search(r"\b(PG|SG|SF|PF|C|Guard|Forward|Center)\b", page_text)
+        if pos_match:
+            result["position"] = pos_match.group(1)
+        h_match = re.search(r"(\d-\d{1,2})", page_text)
+        if h_match:
+            result["height"] = h_match.group(1)
+        w_match = re.search(r"(\d{2,3})\s?lbs?", page_text, re.IGNORECASE)
+        if w_match:
+            result["weight"] = f"{w_match.group(1)}lb"
+
+        # Team / school
+        school_match = re.search(r"(?:School|College|Team)\s*[:\-]?\s*([A-Za-z0-9 &'.]+)", page_text)
+        if school_match:
+            result["team"] = school_match.group(1).strip()
+
+        # Stats table — ESPN uses <tr> rows with class "Table__TR"
+        stats: dict[str, float | int | None] = {
+            "pts": None, "reb": None, "ast": None,
+            "fg_pct": None, "three_pct": None, "ft_pct": None,
+            "games": None, "minutes": None,
+        }
+
+        table = soup.find("table")
+        if table:
+            # Find header row to map column indices
+            header_row = table.find("tr")
+            if header_row:
+                headers_list = [th.get_text(strip=True).upper() for th in header_row.find_all(["th", "td"])]
+                col = {h: i for i, h in enumerate(headers_list)}
+
+                # ESPN header names vary; normalise common aliases
+                alias = {
+                    "GP": "G", "MIN": "MPG", "FG%": "FG%", "3P%": "3P%",
+                    "FT%": "FT%", "PTS": "PTS", "REB": "REB", "AST": "AST",
+                }
+                # Build a lookup tolerant of ESPN's header names
+                def _col(*names: str) -> int | None:
+                    for n in names:
+                        if n in col:
+                            return col[n]
+                        if alias.get(n, n) in col:
+                            return col[alias[n]]
+                    return None
+
+                # Last data row holds the most-recent season
+                data_rows = [
+                    r for r in table.find_all("tr")
+                    if r.find("td") and "Total" not in r.get_text()
+                ]
+                if data_rows:
+                    cells = [td.get_text(strip=True) for td in data_rows[-1].find_all("td")]
+
+                    def _cell(idx: int | None) -> str | None:
+                        if idx is None or idx >= len(cells):
+                            return None
+                        v = cells[idx]
+                        return v if v and v != "--" else None
+
+                    stats["games"]     = _to_int(_cell(_col("GP", "G", "GAMES")))
+                    stats["minutes"]   = _to_float(_cell(_col("MIN", "MPG", "MP")))
+                    stats["pts"]       = _to_float(_cell(_col("PTS", "PPG")))
+                    stats["reb"]       = _to_float(_cell(_col("REB", "RPG")))
+                    stats["ast"]       = _to_float(_cell(_col("AST", "APG")))
+                    stats["fg_pct"]    = _to_float(_cell(_col("FG%", "FGP")))
+                    stats["three_pct"] = _to_float(_cell(_col("3P%", "3PT%", "3FG%")))
+                    stats["ft_pct"]    = _to_float(_cell(_col("FT%", "FTP")))
+
+                    # ESPN stores percentages as whole numbers (e.g. 46.8); normalise to 0-1
+                    for pct_key in ("fg_pct", "three_pct", "ft_pct"):
+                        v = stats[pct_key]
+                        if isinstance(v, float) and v > 1.0:
+                            stats[pct_key] = round(v / 100, 4)
+
+        result.update(stats)
+
+        score_fields = [
+            result["player_name"], result["position"], result["height"],
+            result["weight"], result["team"], result["pts"], result["reb"],
+            result["ast"], result["fg_pct"], result["three_pct"],
+            result["ft_pct"], result["games"], result["minutes"],
+        ]
+        result["confidence"] = round(sum(v is not None for v in score_fields) / 13, 3)
+        return result
+
     except Exception:
         return _empty_result() | {"level": "college"}
