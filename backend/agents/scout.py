@@ -118,6 +118,18 @@ Research order:
 Try ALL sources before concluding data is unavailable.
 For each source that returns data, merge into the report.
 Use the highest quality data found across all sources.
+
+For current college players, always search:
+'{player_name} {year} stats per game'
+'{player_name} college basketball stats 2025-26'
+'{player_name} sports reference cbb'
+
+Sports Reference CBB URL pattern for current players:
+https://www.sports-reference.com/cbb/players/{firstname}-{lastname}-1.html
+
+Try multiple URL variations if first attempt fails.
+For 2025-26 freshmen, stats may be under the current season
+table not career totals — check both.
 After retrieving stats from any tool, verify the player matches
 by checking:
 1. Does the team/school match what was searched?
