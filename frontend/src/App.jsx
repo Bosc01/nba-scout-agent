@@ -181,105 +181,119 @@ function ReportCard({ report, onShare, copied, responseTime }) {
 // ─── HeadToHeadTable ─────────────────────────────────────────────────────────
 
 function HeadToHeadTable({ r1, r2 }) {
+  // highlight=true rows: winner orange, loser #888888, null → both white
+  // highlight=false rows: always white, no winner indicated
   const rows = [
     {
       label: 'PTS',
       v1: r1?.stats?.pts,
       v2: r2?.stats?.pts,
       fmt: (v) => formatStat(v),
-      cmp: (a, b) => (a ?? -Infinity) - (b ?? -Infinity),
+      highlight: true,
+      cmp: (a, b) => a - b,
     },
     {
       label: 'REB',
       v1: r1?.stats?.reb,
       v2: r2?.stats?.reb,
       fmt: (v) => formatStat(v),
-      cmp: (a, b) => (a ?? -Infinity) - (b ?? -Infinity),
+      highlight: true,
+      cmp: (a, b) => a - b,
     },
     {
       label: 'AST',
       v1: r1?.stats?.ast,
       v2: r2?.stats?.ast,
       fmt: (v) => formatStat(v),
-      cmp: (a, b) => (a ?? -Infinity) - (b ?? -Infinity),
+      highlight: true,
+      cmp: (a, b) => a - b,
     },
     {
       label: 'FG%',
       v1: r1?.stats?.fg_pct,
       v2: r2?.stats?.fg_pct,
       fmt: (v) => formatStat(v, true),
-      cmp: (a, b) => (a ?? -Infinity) - (b ?? -Infinity),
+      highlight: true,
+      cmp: (a, b) => a - b,
     },
     {
       label: '3PT%',
       v1: r1?.stats?.three_pct,
       v2: r2?.stats?.three_pct,
       fmt: (v) => formatStat(v, true),
-      cmp: (a, b) => (a ?? -Infinity) - (b ?? -Infinity),
+      highlight: true,
+      cmp: (a, b) => a - b,
     },
     {
       label: 'FT%',
       v1: r1?.stats?.ft_pct,
       v2: r2?.stats?.ft_pct,
       fmt: (v) => formatStat(v, true),
-      cmp: (a, b) => (a ?? -Infinity) - (b ?? -Infinity),
+      highlight: true,
+      cmp: (a, b) => a - b,
     },
     {
       label: 'Height',
       v1: r1?.physical?.height,
       v2: r2?.physical?.height,
       fmt: (v) => v ?? '--',
-      cmp: (a, b) => (heightToInches(a) ?? -Infinity) - (heightToInches(b) ?? -Infinity),
+      highlight: false,
     },
     {
       label: 'Weight',
       v1: r1?.physical?.weight,
       v2: r2?.physical?.weight,
       fmt: (v) => v ?? '--',
-      cmp: (a, b) => (weightToLbs(a) ?? -Infinity) - (weightToLbs(b) ?? -Infinity),
+      highlight: false,
     },
     {
       label: 'Wingspan',
       v1: r1?.physical?.wingspan,
       v2: r2?.physical?.wingspan,
       fmt: (v) => v ?? '--',
-      cmp: (a, b) => (heightToInches(a) ?? -Infinity) - (heightToInches(b) ?? -Infinity),
+      highlight: false,
     },
   ]
 
   return (
-    <div className="mb-8 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#141414]">
+    <div className="mb-4 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#141414]">
       <div className="grid grid-cols-3 border-b border-[#2a2a2a] bg-[#101010] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-[#888888]">
         <span>{r1?.player_name ?? 'Player 1'}</span>
         <span className="text-center">Stat</span>
         <span className="text-right">{r2?.player_name ?? 'Player 2'}</span>
       </div>
-      {rows.map(({ label, v1, v2, fmt, cmp }) => {
-        const diff = cmp(v1, v2)
-        const p1Better = diff > 0
-        const p2Better = diff < 0
+      {rows.map(({ label, v1, v2, fmt, highlight, cmp }) => {
+        const bothPresent = highlight && v1 != null && v2 != null
+        const diff = bothPresent ? cmp(v1, v2) : 0
+        const p1Win = bothPresent && diff > 0
+        const p2Win = bothPresent && diff < 0
+
+        const cls1 = !highlight
+          ? 'text-[#ffffff]'
+          : p1Win
+          ? 'text-[#f97316]'
+          : p2Win
+          ? 'text-[#888888]'
+          : 'text-[#ffffff]'
+
+        const cls2 = !highlight
+          ? 'text-[#ffffff]'
+          : p2Win
+          ? 'text-[#f97316]'
+          : p1Win
+          ? 'text-[#888888]'
+          : 'text-[#ffffff]'
+
         return (
           <div
             key={label}
             className="grid grid-cols-3 border-b border-[#2a2a2a] px-4 py-3 last:border-b-0"
           >
-            <span
-              className={`text-sm font-semibold ${
-                p1Better ? 'text-[#f97316]' : 'text-[#ffffff]'
-              }`}
-            >
-              {fmt(v1)}
-            </span>
+            <span className={`text-sm font-semibold ${cls1}`}>{fmt(v1)}</span>
             <span className="text-center text-xs uppercase tracking-wide text-[#888888]">
               {label}
             </span>
-            <span
-              className={`text-right text-sm font-semibold ${
-                p2Better ? 'text-[#f97316]' : 'text-[#ffffff]'
-              }`}
-            >
-              {fmt(v2)}
-            </span>
+            <span className={`text-right text-sm font-semibold ${cls2}`}>{fmt(v2)}</span>
           </div>
         )
       })}
@@ -528,9 +542,12 @@ export default function App() {
             {comparison && !compareLoading && (
               <>
                 <HeadToHeadTable r1={comparison.player_one} r2={comparison.player_two} />
+                <p className="mb-6 text-center text-xs text-[#888888]">
+                  Comparison generated in {comparison.response_time_seconds ?? '--'}s
+                </p>
                 <div className="grid gap-6 lg:grid-cols-2">
-                  <ReportCard report={comparison.player_one} responseTime={comparison.response_time_seconds} />
-                  <ReportCard report={comparison.player_two} responseTime={comparison.response_time_seconds} />
+                  <ReportCard report={comparison.player_one} />
+                  <ReportCard report={comparison.player_two} />
                 </div>
               </>
             )}

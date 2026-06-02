@@ -507,5 +507,7 @@ Rules:
 
         raw_report = self._safe_json_parse(final_text)
         report = self._normalize_report(raw_report, player_name, seen_sources)
+        if len(_report_cache) > 50:
+            _report_cache.clear()
         _report_cache[cache_key] = report
         return report
