@@ -156,7 +156,7 @@ async def get_player_stats(player_name: str) -> dict:
             "https://www.basketball-reference.com/search/search.fcgi?search="
             f"{player_name.replace(' ', '+')}"
         )
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
             response = await client.get(search_url, headers=headers)
             if response.status_code != 200:
                 return result
@@ -284,7 +284,7 @@ async def get_college_stats(player_name: str) -> dict:
             "https://www.sports-reference.com/cbb/search/search.fcgi?search="
             f"{player_name.replace(' ', '+')}"
         )
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
             response = await client.get(search_url, headers=headers)
             if response.status_code != 200:
                 return result

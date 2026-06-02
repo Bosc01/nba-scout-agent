@@ -104,29 +104,20 @@ player at that institution.
 
 Research order — follow this exactly:
 1. Call get_player_stats (NBA/pro Basketball Reference)
-2. Call get_college_stats (Sports Reference CBB)
-3. Call web_search: '{player_name} stats per game 2025-26'
-4. Call web_search: '{player_name} NBA draft profile 2026 height weight position'
-5. Call web_search: '{player_name} scouting report strengths weaknesses'
+2. Call web_search: '{player_name} height weight position team 2026 NBA draft'
+3. Call get_college_stats (Sports Reference CBB)
+4. Call web_search: '{player_name} scouting report strengths weaknesses'
+5. Call web_search: '{player_name} mock draft projection'
 
-Critical: Even if steps 1 and 2 return no stats, you MUST
-use web search results to populate:
-- Physical measurements from any source
-- Position from any source
-- Draft projection from mock drafts found in search
-- Strengths and weaknesses from scouting reports found in search
-- NBA comp from any draft analysis found in search
+Do not wait for scraper tools to succeed before searching
+the web. Run web searches in parallel with scraper results.
 
-A player like Alijah Arenas has extensive draft coverage even
-with limited stats. Use that coverage to build a complete
-qualitative report. Strengths and weaknesses from reputable
-scouting sources are more valuable than raw stats alone.
+CRITICAL: If web search snippets contain physical
+measurements, strengths, weaknesses, or draft projections
+— extract and use that information directly. Do not return
+null fields when the information exists in search results.
 
-Never return empty strengths/weaknesses if web search
-returned scouting coverage. Parse the search snippets for
-qualitative assessments.
-
-For current college players, also try:
+For current college players, also search:
 '{player_name} college basketball stats 2025-26'
 '{player_name} sports reference cbb'
 
@@ -403,12 +394,12 @@ Rules:
         for _ in range(8):
             response = await self.client.messages.create(
                 model=self.MODEL,
-                max_tokens=1500,
+                max_tokens=3000,
                 temperature=0,
                 system=self._system_prompt(),
                 tools=self._tools(),
                 messages=messages,
-                timeout=30.0,
+                timeout=25.0,
             )
 
             assistant_blocks = self._normalize_assistant_blocks(response.content)
