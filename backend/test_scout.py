@@ -9,7 +9,7 @@ from agents.scout import ScoutAgent
 
 async def main() -> None:
     agent = ScoutAgent()
-    target_player = "Cooper Flagg"
+    target_player = "Jordan Pope"
 
     start = time.perf_counter()
     report = await agent.generate_report(target_player)

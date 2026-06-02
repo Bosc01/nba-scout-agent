@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import urljoin
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 
 from tools.search import search
 
@@ -86,6 +87,21 @@ def _extract_stats_from_table(soup: BeautifulSoup, table_ids: list[str]) -> tupl
         table = soup.find("table", {"id": table_id})
         if table is not None:
             break
+
+    # Sports Reference often wraps tables in HTML comments; parse those too.
+    if table is None:
+        for comment in soup.find_all(string=lambda t: isinstance(t, Comment)):
+            comment_str = str(comment)
+            for table_id in table_ids:
+                if table_id in comment_str:
+                    comment_soup = BeautifulSoup(comment_str, "html.parser")
+                    found = comment_soup.find("table", {"id": table_id})
+                    if found is not None:
+                        table = found
+                        break
+            if table is not None:
+                break
+
     empty_stats = {
         "pts": None,
         "reb": None,
@@ -269,6 +285,17 @@ async def get_player_stats(player_name: str) -> dict:
         return _empty_result()
 
 
+def _cbb_direct_urls(player_name: str) -> list[str]:
+    """Build candidate Sports Reference CBB player URLs from a name."""
+    tokens = _normalize_name_tokens(player_name)
+    if len(tokens) < 2:
+        return []
+    first = tokens[0]
+    last = "-".join(tokens[1:])
+    base = f"https://www.sports-reference.com/cbb/players/{first}-{last}"
+    return [f"{base}-1.html", f"{base}-2.html"]
+
+
 async def get_college_stats(player_name: str) -> dict:
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -282,47 +309,76 @@ async def get_college_stats(player_name: str) -> dict:
         return result
 
     try:
-        search_url = (
-            "https://www.sports-reference.com/cbb/search/search.fcgi?search="
-            f"{player_name.replace(' ', '+')}"
-        )
+        player_url: str | None = None
+        player_html: str | None = None
+
         async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
-            response = await client.get(search_url, headers=headers)
-            if response.status_code != 200:
-                return result
+            # Fast-path: try the canonical URL pattern directly before using search.
+            # The URL slug is derived from the player name so URL matching is sufficient;
+            # CBB pages don't always carry an <h1 itemprop="name"> tag.
+            for direct_url in _cbb_direct_urls(player_name):
+                r = await client.get(direct_url, headers=headers)
+                if r.status_code != 200:
+                    continue
+                if _url_matches_requested_player(str(r.url), player_name):
+                    player_url = str(r.url)
+                    player_html = r.text
+                    break
 
-            final_url = str(response.url)
-            player_url = final_url
-            player_html = response.text
+            # Fall back to the search redirect if direct URLs didn't work.
+            if not player_html:
+                search_url = (
+                    "https://www.sports-reference.com/cbb/search/search.fcgi?search="
+                    f"{player_name.replace(' ', '+')}"
+                )
+                response = await client.get(search_url, headers=headers)
+                if response.status_code != 200:
+                    return result
 
-            if "/cbb/players/" in final_url and not _url_matches_requested_player(final_url, player_name):
-                return result
+                final_url = str(response.url)
+                player_url = final_url
+                player_html = response.text
 
-            if "/cbb/players/" not in final_url:
-                soup_search = BeautifulSoup(response.text, "html.parser")
-                found_link = None
-                for a_tag in soup_search.find_all("a", href=True):
-                    href = a_tag["href"]
-                    if "/cbb/players/" in href and href.endswith(".html"):
-                        found_link = urljoin("https://www.sports-reference.com", href)
-                        break
-                if not found_link:
+                if "/cbb/players/" in final_url and not _url_matches_requested_player(final_url, player_name):
                     return result
-                player_response = await client.get(found_link, headers=headers)
-                if player_response.status_code != 200:
-                    return result
-                player_url = str(player_response.url)
-                if not _url_matches_requested_player(player_url, player_name):
-                    return result
-                player_html = player_response.text
+
+                if "/cbb/players/" not in final_url:
+                    soup_search = BeautifulSoup(response.text, "html.parser")
+                    found_link = None
+                    for a_tag in soup_search.find_all("a", href=True):
+                        href = a_tag["href"]
+                        if "/cbb/players/" in href and href.endswith(".html"):
+                            found_link = urljoin("https://www.sports-reference.com", href)
+                            break
+                    if not found_link:
+                        return result
+                    player_response = await client.get(found_link, headers=headers)
+                    if player_response.status_code != 200:
+                        return result
+                    player_url = str(player_response.url)
+                    if not _url_matches_requested_player(player_url, player_name):
+                        return result
+                    player_html = player_response.text
 
         soup = BeautifulSoup(player_html, "html.parser")
         name_tag = soup.find("h1", {"itemprop": "name"})
         name = name_tag.get_text(" ", strip=True) if name_tag else None
         if name is None:
             title_tag = soup.find("title")
-            name = title_tag.get_text(" ", strip=True).split(" Stats", 1)[0].strip() if title_tag else player_name
-        if not _is_same_player(player_name, name):
+            if title_tag:
+                raw_title = title_tag.get_text(" ", strip=True)
+                # CBB title format: "Jordan Pope College Stats | Sports Reference"
+                # Strip " College Stats …" so we're left with just "Jordan Pope".
+                name = re.sub(
+                    r"\s+(?:College\s+|High\s+School\s+)?Stats\b.*",
+                    "",
+                    raw_title,
+                    flags=re.IGNORECASE,
+                ).strip()
+            if not name:
+                name = player_name
+        # Only reject when we have a name that clearly belongs to someone else.
+        if name and not _is_same_player(player_name, name):
             return result
 
         meta = soup.find("div", {"id": "meta"})
@@ -409,51 +465,168 @@ async def get_espn_college_stats(player_name: str) -> dict:
     }
 
     try:
-        # Discover the player's ESPN page via web search
-        query = f"{player_name} ESPN college stats site:espn.com mens-college-basketball player"
-        search_results = await search(query=query, max_results=8)
+        # Step 1 — find the ESPN numeric player ID from search results.
+        # Build the expected URL slug: "jordan-pope" for "Jordan Pope".
+        _tokens = _normalize_name_tokens(player_name)
+        _expected_slug = (
+            f"{_tokens[0]}-{_tokens[-1]}" if len(_tokens) >= 2 else player_name.lower()
+        )
 
-        player_url: str | None = None
-        for item in search_results:
-            url = str(item.get("url", ""))
-            if "espn.com" in url and "mens-college-basketball" in url and "player" in url:
-                player_url = url
+        player_id: str | None = None
+        _fallback_id: str | None = None
+
+        for query in [
+            f"{player_name} site:espn.com mens-college-basketball player",
+            f"{player_name} ESPN college basketball player stats",
+        ]:
+            for item in await search(query=query, max_results=10):
+                url = str(item.get("url", ""))
+                if "espn.com" not in url or "player" not in url:
+                    continue
+                # Skip non-profile pages.
+                if any(x in url for x in ["/news/", "/gamelog/", "/playbyplay/", "/game/"]):
+                    continue
+                m = re.search(r"/id/(\d+)", url)
+                if not m:
+                    continue
+                # Prefer URLs whose trailing name slug matches exactly.
+                path_slug = url.rstrip("/").split("/")[-1].lower()
+                if path_slug == _expected_slug:
+                    player_id = m.group(1)
+                    break
+                if _fallback_id is None:
+                    _fallback_id = m.group(1)
+            if player_id:
                 break
 
-        if not player_url:
-            # Broaden the search if the strict one found nothing
-            fallback_results = await search(
-                query=f"{player_name} ESPN mens college basketball player stats",
-                max_results=8,
-            )
-            for item in fallback_results:
-                url = str(item.get("url", ""))
-                if "espn.com" in url and ("college-basketball" in url or "ncb" in url) and "player" in url:
-                    player_url = url
-                    break
+        player_id = player_id or _fallback_id
 
-        if not player_url:
+        if not player_id:
             return result
 
+        stats_page_url = (
+            f"https://www.espn.com/mens-college-basketball/player/stats/_/id/{player_id}"
+        )
+        result["source_url"] = stats_page_url
+
         async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
-            response = await client.get(player_url, headers=headers)
-            if response.status_code != 200 or not response.text:
+            # Step 2a — try multiple ESPN JSON API variants (fast, no JS rendering needed).
+            api_url = (
+                "https://site.web.api.espn.com/apis/common/v3/sports/basketball"
+                f"/mens-college-basketball/athletes/{player_id}/overview"
+            )
+            # Fallback API URLs tried in order.
+            _api_candidates = [
+                api_url,
+                (
+                    "https://site.web.api.espn.com/apis/site/v2/sports/basketball"
+                    f"/mens-college-basketball/athletes/{player_id}/statistics"
+                ),
+                (
+                    "https://site.api.espn.com/apis/site/v2/sports/basketball"
+                    f"/mens-college-basketball/athletes/{player_id}/statistics"
+                ),
+            ]
+            api_data: dict = {}
+            for api_url in _api_candidates:
+                try:
+                    _r = await client.get(api_url, headers=headers)
+                    if _r.status_code == 200:
+                        api_data = _r.json()
+                        break
+                except Exception:
+                    pass
+            if api_data:
+                try:
+                    data = api_data
+                    # Stat names ESPN uses in the API payload.
+                    _api_map = {
+                        "gamesPlayed": "games",
+                        "avgMinutes": "minutes",
+                        "avgPoints": "pts",
+                        "avgRebounds": "reb",
+                        "avgAssists": "ast",
+                        "fieldGoalPct": "fg_pct",
+                        "threePointFieldGoalPct": "three_pct",
+                        "freeThrowPct": "ft_pct",
+                    }
+
+                    def _walk(node: object) -> None:
+                        if isinstance(node, dict):
+                            name_key = node.get("name") or node.get("abbreviation", "")
+                            val = node.get("value")
+                            if name_key in _api_map and val is not None:
+                                key = _api_map[name_key]
+                                v = float(val)
+                                # API returns pct as 0-1 already for some fields
+                                if key in ("fg_pct", "three_pct", "ft_pct") and v > 1.0:
+                                    v = round(v / 100, 4)
+                                if key == "games":
+                                    result[key] = int(v)
+                                else:
+                                    result[key] = v
+                            for child in node.values():
+                                _walk(child)
+                        elif isinstance(node, list):
+                            for item in node:
+                                _walk(item)
+
+                    _walk(data)
+
+                    # Also grab bio from the athlete node.
+                    athlete = data.get("athlete", {})
+                    if not result["player_name"]:
+                        result["player_name"] = athlete.get("displayName") or player_name
+                    if not result["position"]:
+                        pos = (athlete.get("position") or {}).get("abbreviation")
+                        if pos:
+                            result["position"] = pos
+                    if not result["height"]:
+                        ht = athlete.get("height")
+                        if ht:
+                            feet, inches = divmod(int(ht), 12)
+                            result["height"] = f"{feet}-{inches}"
+                    if not result["weight"]:
+                        wt = athlete.get("weight")
+                        if wt:
+                            result["weight"] = f"{int(wt)}lb"
+                    if not result["team"]:
+                        team_node = (athlete.get("team") or {})
+                        result["team"] = team_node.get("displayName") or team_node.get("name")
+
+                    # If we got meaningful stats from the API, return now.
+                    if result.get("pts") is not None or result.get("games") is not None:
+                        score_fields = [
+                            result["player_name"], result["position"], result["height"],
+                            result["weight"], result["team"], result["pts"], result["reb"],
+                            result["ast"], result["fg_pct"], result["three_pct"],
+                            result["ft_pct"], result["games"], result["minutes"],
+                        ]
+                        result["confidence"] = round(
+                            sum(v is not None for v in score_fields) / 13, 3
+                        )
+                        return result
+                except Exception:
+                    pass
+
+            # Step 2b — fall back to the HTML stats page and parse any tables found.
+            page_resp = await client.get(stats_page_url, headers=headers)
+            if page_resp.status_code != 200 or not page_resp.text:
                 return result
 
-        soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(page_resp.text, "html.parser")
+        page_text = soup.get_text(" ", strip=True)
 
-        # Verify we landed on the right player
+        # Verify we landed on the right player.
         name_tag = soup.find("h1") or soup.find("title")
         page_name = name_tag.get_text(" ", strip=True).split("|")[0].strip() if name_tag else ""
         if page_name and not _is_same_player(player_name, page_name):
             return result
 
         result["player_name"] = page_name or player_name
-        result["source_url"] = player_url
 
-        # Bio: position / height / weight
-        page_text = soup.get_text(" ", strip=True)
-        pos_match = re.search(r"\b(PG|SG|SF|PF|C|Guard|Forward|Center)\b", page_text)
+        # Bio from page text.
+        pos_match = re.search(r"\b(PG|SG|SF|PF|C)\b", page_text)
         if pos_match:
             result["position"] = pos_match.group(1)
         h_match = re.search(r"(\d-\d{1,2})", page_text)
@@ -463,71 +636,71 @@ async def get_espn_college_stats(player_name: str) -> dict:
         if w_match:
             result["weight"] = f"{w_match.group(1)}lb"
 
-        # Team / school
-        school_match = re.search(r"(?:School|College|Team)\s*[:\-]?\s*([A-Za-z0-9 &'.]+)", page_text)
-        if school_match:
-            result["team"] = school_match.group(1).strip()
-
-        # Stats table — ESPN uses <tr> rows with class "Table__TR"
+        # Step 3 — look for a stats table containing the expected column headers.
+        target_cols = {"GP", "FG%", "3P%", "FT%", "REB", "AST", "PTS"}
         stats: dict[str, float | int | None] = {
             "pts": None, "reb": None, "ast": None,
             "fg_pct": None, "three_pct": None, "ft_pct": None,
             "games": None, "minutes": None,
         }
 
-        table = soup.find("table")
-        if table:
-            # Find header row to map column indices
+        for table in soup.find_all("table"):
             header_row = table.find("tr")
-            if header_row:
-                headers_list = [th.get_text(strip=True).upper() for th in header_row.find_all(["th", "td"])]
-                col = {h: i for i, h in enumerate(headers_list)}
+            if not header_row:
+                continue
+            all_headers = [
+                c.get_text(strip=True).upper()
+                for c in header_row.find_all(["th", "td"])
+            ]
+            if not target_cols.issubset(set(all_headers)):
+                continue
 
-                # ESPN header names vary; normalise common aliases
-                alias = {
-                    "GP": "G", "MIN": "MPG", "FG%": "FG%", "3P%": "3P%",
-                    "FT%": "FT%", "PTS": "PTS", "REB": "REB", "AST": "AST",
-                }
-                # Build a lookup tolerant of ESPN's header names
-                def _col(*names: str) -> int | None:
-                    for n in names:
-                        if n in col:
-                            return col[n]
-                        if alias.get(n, n) in col:
-                            return col[alias[n]]
+            col = {h: i for i, h in enumerate(all_headers)}
+
+            def _col(*names: str) -> int | None:
+                for n in names:
+                    if n in col:
+                        return col[n]
+                return None
+
+            # Prefer the 2025-26 row; otherwise take the last data row.
+            data_rows = [
+                r for r in table.find_all("tr")
+                if r.find("td") and "Total" not in r.get_text()
+            ]
+            if not data_rows:
+                continue
+            target_row = next(
+                (r for r in data_rows if "2025" in r.get_text() or "2026" in r.get_text()),
+                data_rows[-1],
+            )
+            cells = [td.get_text(strip=True) for td in target_row.find_all("td")]
+
+            def _cell(idx: int | None) -> str | None:
+                if idx is None or idx >= len(cells):
                     return None
+                v = cells[idx]
+                return v if v and v != "--" else None
 
-                # Last data row holds the most-recent season
-                data_rows = [
-                    r for r in table.find_all("tr")
-                    if r.find("td") and "Total" not in r.get_text()
-                ]
-                if data_rows:
-                    cells = [td.get_text(strip=True) for td in data_rows[-1].find_all("td")]
+            stats["games"]     = _to_int(_cell(_col("GP", "G", "GAMES")))
+            stats["minutes"]   = _to_float(_cell(_col("MIN", "MPG", "MP")))
+            stats["pts"]       = _to_float(_cell(_col("PTS", "PPG")))
+            stats["reb"]       = _to_float(_cell(_col("REB", "RPG", "TREB")))
+            stats["ast"]       = _to_float(_cell(_col("AST", "APG")))
+            stats["fg_pct"]    = _to_float(_cell(_col("FG%", "FGP")))
+            stats["three_pct"] = _to_float(_cell(_col("3P%", "3PT%", "3FG%")))
+            stats["ft_pct"]    = _to_float(_cell(_col("FT%", "FTP")))
 
-                    def _cell(idx: int | None) -> str | None:
-                        if idx is None or idx >= len(cells):
-                            return None
-                        v = cells[idx]
-                        return v if v and v != "--" else None
+            # ESPN encodes percentages as whole numbers (e.g. 46.8 → 0.468).
+            for pct_key in ("fg_pct", "three_pct", "ft_pct"):
+                v = stats[pct_key]
+                if isinstance(v, float) and v > 1.0:
+                    stats[pct_key] = round(v / 100, 4)
 
-                    stats["games"]     = _to_int(_cell(_col("GP", "G", "GAMES")))
-                    stats["minutes"]   = _to_float(_cell(_col("MIN", "MPG", "MP")))
-                    stats["pts"]       = _to_float(_cell(_col("PTS", "PPG")))
-                    stats["reb"]       = _to_float(_cell(_col("REB", "RPG")))
-                    stats["ast"]       = _to_float(_cell(_col("AST", "APG")))
-                    stats["fg_pct"]    = _to_float(_cell(_col("FG%", "FGP")))
-                    stats["three_pct"] = _to_float(_cell(_col("3P%", "3PT%", "3FG%")))
-                    stats["ft_pct"]    = _to_float(_cell(_col("FT%", "FTP")))
-
-                    # ESPN stores percentages as whole numbers (e.g. 46.8); normalise to 0-1
-                    for pct_key in ("fg_pct", "three_pct", "ft_pct"):
-                        v = stats[pct_key]
-                        if isinstance(v, float) and v > 1.0:
-                            stats[pct_key] = round(v / 100, 4)
+            if any(v is not None for v in stats.values()):
+                break
 
         result.update(stats)
-
         score_fields = [
             result["player_name"], result["position"], result["height"],
             result["weight"], result["team"], result["pts"], result["reb"],
