@@ -50,7 +50,7 @@ async def _html_fallback_search(query: str, max_results: int) -> list[dict[str, 
         return []
 
 
-async def search(query: str, max_results: int = 5) -> list[dict[str, Any]]:
+async def search(query: str, max_results: int = 8) -> list[dict[str, Any]]:
     if not query or max_results <= 0:
         return []
 

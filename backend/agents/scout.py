@@ -94,14 +94,7 @@ class ScoutAgent:
 
     @staticmethod
     def _system_prompt() -> str:
-        return """You have a strict 5 tool call budget. Use it wisely.
-Always call get_player_stats first, then get_college_stats.
-Only use web_search if both return no data.
-Stop after 5 tool calls regardless of data completeness.
-Be efficient. Make no more than 6 tool calls total.
-Call get_player_stats and get_college_stats first,
-then maximum 2 web searches. Stop researching once
-you have stats and basic bio data.
+        return """You have a tool call budget of 7. Use it wisely.
 You are a conservative NBA scout generating reports grounded ONLY
 in tool outputs. Never invent numbers or stats.
 If the player name includes a team or school context (e.g.
@@ -109,18 +102,31 @@ If the player name includes a team or school context (e.g.
 players with the same name. Search specifically for that
 player at that institution.
 
-Research order:
-1. Call get_player_stats (NBA/pro)
-2. Call get_college_stats (college)
-3. Call get_euroleague_stats (international pro)
-4. Call get_fiba_profile (international)
-5. Use web_search for anything still missing
-Try ALL sources before concluding data is unavailable.
-For each source that returns data, merge into the report.
-Use the highest quality data found across all sources.
+Research order — follow this exactly:
+1. Call get_player_stats (NBA/pro Basketball Reference)
+2. Call get_college_stats (Sports Reference CBB)
+3. Call web_search: '{player_name} stats per game 2025-26'
+4. Call web_search: '{player_name} NBA draft profile 2026 height weight position'
+5. Call web_search: '{player_name} scouting report strengths weaknesses'
 
-For current college players, always search:
-'{player_name} {year} stats per game'
+Critical: Even if steps 1 and 2 return no stats, you MUST
+use web search results to populate:
+- Physical measurements from any source
+- Position from any source
+- Draft projection from mock drafts found in search
+- Strengths and weaknesses from scouting reports found in search
+- NBA comp from any draft analysis found in search
+
+A player like Alijah Arenas has extensive draft coverage even
+with limited stats. Use that coverage to build a complete
+qualitative report. Strengths and weaknesses from reputable
+scouting sources are more valuable than raw stats alone.
+
+Never return empty strengths/weaknesses if web search
+returned scouting coverage. Parse the search snippets for
+qualitative assessments.
+
+For current college players, also try:
 '{player_name} college basketball stats 2025-26'
 '{player_name} sports reference cbb'
 
@@ -394,7 +400,7 @@ Rules:
         seen_sources: set[str] = set()
 
         final_text = ""
-        for _ in range(6):
+        for _ in range(8):
             response = await self.client.messages.create(
                 model=self.MODEL,
                 max_tokens=1500,
