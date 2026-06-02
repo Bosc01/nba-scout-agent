@@ -68,25 +68,22 @@ async def scout(req: ScoutRequest, request: Request):
 
 
 @app.post("/compare")
-async def compare(req: CompareRequest, request: Request):
+async def compare(req: CompareRequest):
     if not req.player_one.strip() or not req.player_two.strip():
-        raise HTTPException(status_code=400, detail="Both player names are required")
-    client_ip = request.client.host if request.client else "unknown"
-    if _is_rate_limited(client_ip):
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Please try again later.",
-        )
+        raise HTTPException(status_code=400, detail="Both player names required")
     start = time.time()
     try:
-        report1, report2 = await asyncio.gather(
-            ScoutAgent().generate_report(req.player_one),
-            ScoutAgent().generate_report(req.player_two),
+        agent_one = ScoutAgent()
+        agent_two = ScoutAgent()
+        report_one, report_two = await asyncio.gather(
+            agent_one.generate_report(req.player_one),
+            agent_two.generate_report(req.player_two),
         )
+        elapsed = round(time.time() - start, 2)
         return {
-            "player_one": report1,
-            "player_two": report2,
-            "response_time_seconds": round(time.time() - start, 2),
+            "player_one": report_one,
+            "player_two": report_two,
+            "response_time_seconds": elapsed,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

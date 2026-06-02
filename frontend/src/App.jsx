@@ -48,7 +48,7 @@ function weightToLbs(w) {
 
 // ─── ReportCard ─────────────────────────────────────────────────────────────
 
-function ReportCard({ report, onShare, copied }) {
+function ReportCard({ report, onShare, copied, responseTime }) {
   const stats = [
     { label: 'PTS', value: formatStat(report?.stats?.pts) },
     { label: 'REB', value: formatStat(report?.stats?.reb) },
@@ -172,7 +172,7 @@ function ReportCard({ report, onShare, copied }) {
       )}
 
       <footer className="mt-6 border-t border-[#2a2a2a] pt-4 text-xs text-[#888888]">
-        <p>Response time: {report.response_time_seconds ?? '--'}s</p>
+        <p>Response time: {responseTime ?? report.response_time_seconds ?? '--'}s</p>
       </footer>
     </section>
   )
@@ -529,12 +529,9 @@ export default function App() {
               <>
                 <HeadToHeadTable r1={comparison.player_one} r2={comparison.player_two} />
                 <div className="grid gap-6 lg:grid-cols-2">
-                  <ReportCard report={comparison.player_one} />
-                  <ReportCard report={comparison.player_two} />
+                  <ReportCard report={comparison.player_one} responseTime={comparison.response_time_seconds} />
+                  <ReportCard report={comparison.player_two} responseTime={comparison.response_time_seconds} />
                 </div>
-                <p className="mt-4 text-center text-xs text-[#888888]">
-                  Comparison generated in {comparison.response_time_seconds ?? '--'}s
-                </p>
               </>
             )}
           </>
