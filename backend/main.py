@@ -39,7 +39,7 @@ def _is_rate_limited(ip: str) -> bool:
     return False
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {"status": "ok"}
 
