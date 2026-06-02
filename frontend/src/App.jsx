@@ -322,6 +322,9 @@ export default function App() {
   const [comparison, setComparison] = useState(null)
   const [compareError, setCompareError] = useState(null)
 
+  // Recent searches
+  const [recentSearches, setRecentSearches] = useState([])
+
   async function generateReport(nextPlayerName, nextTeamOrSchool) {
     const trimmedPlayer = String(nextPlayerName ?? '').trim()
     const trimmedTeam = String(nextTeamOrSchool ?? '').trim()
@@ -339,6 +342,11 @@ export default function App() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data?.detail || 'Failed to generate scouting report')
       setReport(data)
+      // Refresh recent searches so the new entry shows if the user clears the report
+      fetch(`${API_URL}/recent`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => Array.isArray(d) ? setRecentSearches(d) : null)
+        .catch(() => null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
     } finally {
@@ -402,6 +410,13 @@ export default function App() {
     setPlayerName(decodedPlayer)
     setTeamOrSchool('')
     void generateReport(decodedPlayer, '')
+  }, [])
+
+  useEffect(() => {
+    fetch(`${API_URL}/recent`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => Array.isArray(data) ? setRecentSearches(data) : null)
+      .catch(() => null)
   }, [])
 
   const inputCls =
@@ -469,6 +484,33 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            {!report && !loading && recentSearches.length > 0 && (
+              <div className="mb-6">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#888888]">
+                  Recent Searches
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {recentSearches.slice(0, 8).map((entry) => (
+                    <button
+                      key={entry.player_name}
+                      type="button"
+                      onClick={() => {
+                        setPlayerName(entry.player_name)
+                        setTeamOrSchool('')
+                        void generateReport(entry.player_name, '')
+                      }}
+                      className="flex items-center gap-1.5 rounded-full border border-[#2a2a2a] bg-[#141414] px-3 py-1.5 text-sm transition hover:border-[#f97316]/50 hover:bg-[#1a1a1a]"
+                    >
+                      <span className="font-medium text-[#ffffff]">{entry.player_name}</span>
+                      {entry.position && (
+                        <span className="text-xs text-[#f97316]">{entry.position}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {loading && (
               <section className="mb-6 rounded-lg border border-[#2a2a2a] bg-[#141414] p-4">

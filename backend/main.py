@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -20,6 +21,23 @@ class ScoutRequest(BaseModel):
 class CompareRequest(BaseModel):
     player_one: str
     player_two: str
+
+
+recent_searches: list[dict] = []
+
+
+def _record_search(player_name: str, position: str | None, team: str | None) -> None:
+    """Append to recent_searches, deduplicate, keep last 20."""
+    key = player_name.strip().lower()
+    global recent_searches
+    recent_searches = [e for e in recent_searches if e["player_name"].lower() != key]
+    recent_searches.insert(0, {
+        "player_name": player_name.strip(),
+        "position": position or None,
+        "team": team or None,
+        "timestamp": datetime.now(UTC).isoformat(),
+    })
+    recent_searches = recent_searches[:20]
 
 
 RATE_LIMIT_MAX_REQUESTS = 3
@@ -62,6 +80,11 @@ async def scout(req: ScoutRequest, request: Request):
         agent = ScoutAgent()
         report = await agent.generate_report(req.player_name)
         report["response_time_seconds"] = round(time.time() - start, 2)
+        _record_search(
+            report.get("player_name") or req.player_name,
+            report.get("position"),
+            report.get("team"),
+        )
         return report
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -80,6 +103,16 @@ async def compare(req: CompareRequest):
             agent_two.generate_report(req.player_two),
         )
         elapsed = round(time.time() - start, 2)
+        _record_search(
+            report_one.get("player_name") or req.player_one,
+            report_one.get("position"),
+            report_one.get("team"),
+        )
+        _record_search(
+            report_two.get("player_name") or req.player_two,
+            report_two.get("position"),
+            report_two.get("team"),
+        )
         return {
             "player_one": report_one,
             "player_two": report_two,
@@ -87,3 +120,8 @@ async def compare(req: CompareRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/recent")
+async def recent():
+    return recent_searches[:10]
