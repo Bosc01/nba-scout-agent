@@ -26,7 +26,7 @@ def _run_ddgs_search(query: str, max_results: int) -> list[dict[str, Any]]:
 async def _html_fallback_search(query: str, max_results: int) -> list[dict[str, Any]]:
     url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
     try:
-        async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
             response = await client.get(url, headers=_HEADERS)
             if response.status_code != 200 or not response.text:
                 return []

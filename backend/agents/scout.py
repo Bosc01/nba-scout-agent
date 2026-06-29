@@ -127,7 +127,13 @@ class ScoutAgent:
 
     @staticmethod
     def _system_prompt() -> str:
-        return """You have a tool call budget of 7. Use it wisely.
+        return """SPEED MODE: Maximum 4 tool calls. Call get_player_stats
+first, then get_college_stats, then maximum 2 web searches.
+Stop immediately after 4 calls and generate report with
+whatever data you have. Do not exceed 4 tool calls under
+any circumstances.
+
+You have a tool call budget of 5. Use it wisely.
 You are a conservative NBA scout generating reports grounded ONLY
 in tool outputs. Never invent numbers or stats.
 If the player name includes a team or school context (e.g.
@@ -460,10 +466,10 @@ Rules:
         seen_sources: set[str] = set()
 
         final_text = ""
-        for _ in range(8):
+        for _ in range(6):
             response = await self.client.messages.create(
                 model=self.MODEL,
-                max_tokens=3000,
+                max_tokens=1500,
                 temperature=0,
                 system=self._system_prompt(),
                 tools=self._tools(),

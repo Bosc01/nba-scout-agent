@@ -174,7 +174,7 @@ async def get_player_stats(player_name: str) -> dict:
             "https://www.basketball-reference.com/search/search.fcgi?search="
             f"{player_name.replace(' ', '+')}"
         )
-        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=5.0) as client:
             response = await client.get(search_url, headers=headers)
             if response.status_code != 200:
                 return result
@@ -312,7 +312,7 @@ async def get_college_stats(player_name: str) -> dict:
         player_url: str | None = None
         player_html: str | None = None
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=5.0) as client:
             # Fast-path: try the canonical URL pattern directly before using search.
             # The URL slug is derived from the player name so URL matching is sufficient;
             # CBB pages don't always carry an <h1 itemprop="name"> tag.
@@ -575,7 +575,7 @@ async def get_espn_college_stats(player_name: str) -> dict:
         )
         result["source_url"] = stats_page_url
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=5.0) as client:
             # Step 2a — try multiple ESPN JSON API variants (fast, no JS rendering needed).
             api_url = (
                 "https://site.web.api.espn.com/apis/common/v3/sports/basketball"
