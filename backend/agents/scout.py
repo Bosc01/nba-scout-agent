@@ -341,7 +341,7 @@ Rules:
             "generated_at": datetime.now(UTC).isoformat(),
         }
 
-        report = default | {k: v for k, v in raw.items() if k in default}
+        report = default | {k: v for k, v in raw.items() if k in default and v is not None}
         report["physical"] = default["physical"] | (
             raw.get("physical", {}) if isinstance(raw.get("physical"), dict) else {}
         )
