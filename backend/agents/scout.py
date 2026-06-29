@@ -468,7 +468,7 @@ Rules:
                 system=self._system_prompt(),
                 tools=self._tools(),
                 messages=messages,
-                timeout=25.0,
+                timeout=60.0,
             )
 
             assistant_blocks = self._normalize_assistant_blocks(response.content)
