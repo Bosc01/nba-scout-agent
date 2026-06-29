@@ -20,7 +20,7 @@ _report_cache: dict[str, Any] = {}
 
 
 class ScoutAgent:
-    MODEL = "claude-sonnet-4-20250514"
+    MODEL = "claude-sonnet-4-6"
 
     def __init__(self) -> None:
         api_key = os.getenv("ANTHROPIC_API_KEY")
