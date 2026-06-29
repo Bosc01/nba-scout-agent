@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from uuid import uuid4
 import time, sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 from agents.scout import ScoutAgent
@@ -24,6 +25,15 @@ class CompareRequest(BaseModel):
 
 
 recent_searches: list[dict] = []
+
+# In-memory job store for async /scout processing.
+# Each entry is one of:
+#   {"status": "processing"}
+#   {"status": "complete", "report": {...}}
+#   {"status": "error", "detail": "..."}
+jobs: dict = {}
+# Hold strong references to in-flight tasks so they aren't garbage-collected.
+_background_tasks: set = set()
 
 
 def _record_search(player_name: str, position: str | None, team: str | None) -> None:
@@ -65,6 +75,23 @@ async def health():
 async def ping():
     return {"ok": True}
 
+async def _run_scout_job(job_id: str, player_name: str) -> None:
+    """Run the scout agent in the background and store the result in `jobs`."""
+    start = time.time()
+    try:
+        agent = ScoutAgent()
+        report = await agent.generate_report(player_name)
+        report["response_time_seconds"] = round(time.time() - start, 2)
+        _record_search(
+            report.get("player_name") or player_name,
+            report.get("position"),
+            report.get("team"),
+        )
+        jobs[job_id] = {"status": "complete", "report": report}
+    except Exception as e:
+        jobs[job_id] = {"status": "error", "detail": str(e)}
+
+
 @app.post("/scout")
 async def scout(req: ScoutRequest, request: Request):
     if not req.player_name.strip():
@@ -75,19 +102,30 @@ async def scout(req: ScoutRequest, request: Request):
             status_code=429,
             detail="Rate limit exceeded. Please try again later.",
         )
-    start = time.time()
-    try:
-        agent = ScoutAgent()
-        report = await agent.generate_report(req.player_name)
-        report["response_time_seconds"] = round(time.time() - start, 2)
-        _record_search(
-            report.get("player_name") or req.player_name,
-            report.get("position"),
-            report.get("team"),
-        )
-        return report
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+    job_id = str(uuid4())
+    jobs[job_id] = {"status": "processing"}
+
+    # Keep the in-memory job store bounded (drop oldest, keep the latest 50).
+    if len(jobs) > 100:
+        for stale_key in list(jobs.keys())[:-50]:
+            jobs.pop(stale_key, None)
+
+    # Run the agent concurrently and return immediately so the request itself
+    # never blocks past Render's 30s limit — the client polls /scout/{job_id}.
+    task = asyncio.create_task(_run_scout_job(job_id, req.player_name))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+    return {"job_id": job_id, "status": "processing"}
+
+
+@app.get("/scout/{job_id}")
+async def scout_status(job_id: str):
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @app.post("/compare")

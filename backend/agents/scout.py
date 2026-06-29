@@ -469,7 +469,7 @@ Rules:
         for _ in range(6):
             response = await self.client.messages.create(
                 model=self.MODEL,
-                max_tokens=1500,
+                max_tokens=2000,
                 temperature=0,
                 system=self._system_prompt(),
                 tools=self._tools(),

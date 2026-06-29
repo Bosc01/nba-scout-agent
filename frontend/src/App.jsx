@@ -310,10 +310,12 @@ export default function App() {
   const [playerName, setPlayerName] = useState('')
   const [teamOrSchool, setTeamOrSchool] = useState('')
   const [loading, setLoading] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
   const didAutoRunDeepLink = useRef(false)
+  const pollRef = useRef(null)
 
   // Compare mode state
   const [p1Name, setP1Name] = useState('')
@@ -330,9 +332,26 @@ export default function App() {
     const trimmedTeam = String(nextTeamOrSchool ?? '').trim()
     if (!trimmedPlayer) return
     const combinedPlayerName = trimmedTeam ? `${trimmedPlayer} ${trimmedTeam}` : trimmedPlayer
+
+    // Cancel any poll loop still running from a previous search.
+    if (pollRef.current) pollRef.current.cancelled = true
+    const runState = { cancelled: false }
+    pollRef.current = runState
+
     setLoading(true)
     setError(null)
     setReport(null)
+    setElapsed(0)
+
+    const startTime = Date.now()
+    const elapsedTimer = setInterval(() => {
+      if (runState.cancelled) return
+      setElapsed(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
+
+    const POLL_INTERVAL_MS = 2000
+    const TIMEOUT_MS = 90000
+
     try {
       const response = await fetch(`${API_URL}/scout`, {
         method: 'POST',
@@ -341,16 +360,45 @@ export default function App() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data?.detail || 'Failed to generate scouting report')
-      setReport(data)
-      // Refresh recent searches so the new entry shows if the user clears the report
-      fetch(`${API_URL}/recent`)
-        .then((r) => r.ok ? r.json() : null)
-        .then((d) => Array.isArray(d) ? setRecentSearches(d) : null)
-        .catch(() => null)
+      const jobId = data?.job_id
+      if (!jobId) throw new Error('No job ID returned from server')
+
+      // Poll until the job completes, errors, or we hit the 90s timeout.
+      while (!runState.cancelled) {
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          throw new Error('Scouting timed out after 90 seconds. Please try again.')
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+        if (runState.cancelled) return
+
+        const pollResp = await fetch(`${API_URL}/scout/${jobId}`)
+        const pollData = await pollResp.json().catch(() => ({}))
+        if (!pollResp.ok) {
+          if (pollResp.status === 404) throw new Error('Scouting job not found.')
+          throw new Error(pollData?.detail || 'Failed to fetch scouting status')
+        }
+
+        if (pollData.status === 'complete') {
+          setReport(pollData.report)
+          // Refresh recent searches so the new entry shows if the user clears the report
+          fetch(`${API_URL}/recent`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => (Array.isArray(d) ? setRecentSearches(d) : null))
+            .catch(() => null)
+          return
+        }
+        if (pollData.status === 'error') {
+          throw new Error(pollData.detail || 'Scouting failed')
+        }
+        // status === 'processing' → keep polling
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unexpected error')
+      if (!runState.cancelled) {
+        setError(err instanceof Error ? err.message : 'Unexpected error')
+      }
     } finally {
-      setLoading(false)
+      clearInterval(elapsedTimer)
+      if (!runState.cancelled) setLoading(false)
     }
   }
 
@@ -516,7 +564,7 @@ export default function App() {
               <section className="mb-6 rounded-lg border border-[#2a2a2a] bg-[#141414] p-4">
                 <div className="flex items-center gap-3">
                   <span className="h-3 w-3 animate-pulse rounded-full bg-[#f97316]" />
-                  <p className="text-sm text-[#888888]">Scouting {playerName}… this takes 20–30 seconds</p>
+                  <p className="text-sm text-[#888888]">Scouting {playerName}… {elapsed}s</p>
                 </div>
               </section>
             )}
