@@ -3,6 +3,17 @@ import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Rotating placeholder examples for the scout search input.
+const PLACEHOLDER_EXAMPLES = ['Cooper Flagg', 'Zaccharie Risacher', 'Camden Heide']
+
+// Multi-step loading indicator — step is chosen by elapsed seconds (`until` is exclusive upper bound).
+const LOADING_STEPS = [
+  { label: 'Searching Basketball Reference…', until: 5 },
+  { label: 'Checking Sports Reference CBB…', until: 10 },
+  { label: 'Running web searches…', until: 20 },
+  { label: 'Synthesizing report…', until: Infinity },
+]
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function getConfidenceStyle(confidence) {
@@ -65,10 +76,10 @@ function ReportCard({ report, onShare, copied, responseTime }) {
   const confidence = typeof report?.confidence === 'number' ? report.confidence : 0
 
   return (
-    <section className="rounded-xl border border-[#2a2a2a] bg-[#141414] p-6">
+    <section className="rounded-xl border border-[#2a2a2a] border-t-2 border-t-[#f97316] bg-[#141414] p-6">
       <div className="mb-5 border-b border-[#2a2a2a] pb-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h2 className="text-3xl font-semibold text-[#ffffff]">{report.player_name ?? '--'}</h2>
+          <h2 className="text-4xl font-semibold text-[#ffffff]">{report.player_name ?? '--'}</h2>
           {onShare && (
             <div className="relative pt-1">
               <button
@@ -96,11 +107,12 @@ function ReportCard({ report, onShare, copied, responseTime }) {
             {getProfileLabel(confidence)}
           </span>
         </div>
+        <p className="mt-2 text-xs text-[#888888]">Generated just now</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {stats.map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-[#2a2a2a] bg-[#141414] p-3">
+          <div key={stat.label} className="rounded-lg border border-[#2a2a2a] bg-[#141414] p-3 transition-colors hover:bg-[#1c1c1c]">
             <p className="text-xs uppercase tracking-wide text-[#888888]">{stat.label}</p>
             <p className="mt-1 text-2xl font-semibold text-[#ffffff]">{stat.value}</p>
           </div>
@@ -123,7 +135,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
             {(report.strengths ?? []).length > 0 ? (
               report.strengths.map((item, idx) => (
                 <li key={idx} className="flex items-start gap-2">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#22c55e]" />
+                  <span className="shrink-0 font-semibold tabular-nums text-[#22c55e]">{idx + 1}.</span>
                   <span>{item}</span>
                 </li>
               ))
@@ -139,7 +151,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
             {(report.weaknesses ?? []).length > 0 ? (
               report.weaknesses.map((item, idx) => (
                 <li key={idx} className="flex items-start gap-2">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#ef4444]" />
+                  <span className="shrink-0 font-semibold tabular-nums text-[#ef4444]">{idx + 1}.</span>
                   <span>{item}</span>
                 </li>
               ))
@@ -152,8 +164,18 @@ function ReportCard({ report, onShare, copied, responseTime }) {
 
       <div className="mt-6 rounded-lg border border-[#f97316]/50 bg-[#f97316]/10 p-4">
         <p className="text-xs uppercase tracking-wide text-[#f97316]">NBA Comparison</p>
-        <p className="mt-1 text-2xl font-semibold text-[#ffffff]">{report.nba_comp?.name ?? '--'}</p>
-        <p className="mt-2 text-sm text-[#888888]">{report.nba_comp?.reasoning ?? '--'}</p>
+        <div className="mt-2 flex items-center gap-4">
+          <div
+            aria-hidden="true"
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#f97316]/40 bg-[#f97316]/10 text-2xl leading-none"
+          >
+            🏀
+          </div>
+          <div className="min-w-0">
+            <p className="text-2xl font-semibold text-[#ffffff]">{report.nba_comp?.name ?? '--'}</p>
+            <p className="mt-1 text-sm text-[#888888]">{report.nba_comp?.reasoning ?? '--'}</p>
+          </div>
+        </div>
       </div>
 
       {report.draft_projection !== null && (
@@ -172,7 +194,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
       )}
 
       <footer className="mt-6 border-t border-[#2a2a2a] pt-4 text-xs text-[#888888]">
-        <p>Response time: {responseTime ?? report.response_time_seconds ?? '--'}s</p>
+        <p>Report generated in {responseTime ?? report.response_time_seconds ?? '--'}s</p>
       </footer>
     </section>
   )
@@ -256,7 +278,8 @@ function HeadToHeadTable({ r1, r2 }) {
   ]
 
   return (
-    <div className="mb-4 overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#141414]">
+    <div className="mb-4 overflow-x-auto">
+      <div className="min-w-[480px] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#141414]">
       <div className="grid grid-cols-3 border-b border-[#2a2a2a] bg-[#101010] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-[#888888]">
         <span>{r1?.player_name ?? 'Player 1'}</span>
         <span className="text-center">Stat</span>
@@ -297,6 +320,7 @@ function HeadToHeadTable({ r1, r2 }) {
           </div>
         )
       })}
+      </div>
     </div>
   )
 }
@@ -311,6 +335,7 @@ export default function App() {
   const [teamOrSchool, setTeamOrSchool] = useState('')
   const [loading, setLoading] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [placeholderIdx, setPlaceholderIdx] = useState(0)
   const [report, setReport] = useState(null)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -467,6 +492,17 @@ export default function App() {
       .catch(() => null)
   }, [])
 
+  // Rotate the search placeholder through example prospects.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_EXAMPLES.length)
+    }, 3000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Which loading step to highlight, based on elapsed seconds.
+  const currentStep = LOADING_STEPS.findIndex((s) => elapsed < s.until)
+
   const inputCls =
     'h-12 w-full rounded-lg border border-[#2a2a2a] bg-[#141414] px-4 text-[#ffffff] ' +
     'placeholder:text-[#888888] outline-none transition focus:border-[#f97316] focus:ring-2 focus:ring-[#f97316]/40'
@@ -477,9 +513,15 @@ export default function App() {
 
         {/* header */}
         <header className="mb-8 text-center">
-          <h1 className="text-4xl font-semibold tracking-tight text-[#ffffff]">NBA Scout</h1>
-          <p className="mt-2 text-sm text-[#888888]">
-            AI-powered scouting reports for college and international prospects
+          <div className="flex items-center justify-center gap-2">
+            <h1 className="text-4xl font-semibold tracking-tight text-[#ffffff]">NBA Scout</h1>
+            <span className="rounded-md border border-[#f97316]/50 bg-[#f97316]/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#f97316]">
+              Beta
+            </span>
+          </div>
+          <div className="mx-auto mt-2 h-0.5 w-24 rounded-full bg-gradient-to-r from-transparent via-[#f97316] to-transparent" />
+          <p className="mx-auto mt-3 max-w-md text-sm text-[#888888]">
+            AI-powered scouting reports for college and international prospects — free during beta
           </p>
         </header>
 
@@ -506,12 +548,12 @@ export default function App() {
         {/* ── Scout mode ── */}
         {mode === 'scout' && (
           <>
-            <form onSubmit={handleSubmit} className="mb-8 flex flex-col gap-3">
+            <form onSubmit={handleSubmit} className="mb-2 flex flex-col gap-3">
               <input
                 type="text"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
-                placeholder="Player name"
+                placeholder={`Try: ${PLACEHOLDER_EXAMPLES[placeholderIdx]}…`}
                 className={inputCls}
                 required
               />
@@ -526,12 +568,18 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={loading || !playerName.trim()}
-                  className="h-12 rounded-lg bg-[#f97316] px-5 font-semibold text-[#0a0a0a] transition hover:bg-[#fb923c] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-12 w-full rounded-lg bg-[#f97316] px-5 font-semibold text-[#0a0a0a] transition hover:bg-[#fb923c] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                 >
                   Generate Report
                 </button>
               </div>
             </form>
+            <p className="mb-8 flex items-center gap-1.5 text-xs text-[#888888]">
+              <kbd className="rounded border border-[#2a2a2a] bg-[#141414] px-1.5 py-0.5 font-sans text-[10px] text-[#cfcfcf]">
+                ↵
+              </kbd>
+              Enter to search
+            </p>
 
             {!report && !loading && recentSearches.length > 0 && (
               <div className="mb-6">
@@ -561,11 +609,37 @@ export default function App() {
             )}
 
             {loading && (
-              <section className="mb-6 rounded-lg border border-[#2a2a2a] bg-[#141414] p-4">
-                <div className="flex items-center gap-3">
-                  <span className="h-3 w-3 animate-pulse rounded-full bg-[#f97316]" />
-                  <p className="text-sm text-[#888888]">Scouting {playerName}… {elapsed}s</p>
+              <section className="mb-6 rounded-lg border border-[#2a2a2a] bg-[#141414] p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <p className="text-sm font-semibold text-[#ffffff]">Scouting {playerName}…</p>
+                  <span className="text-xs tabular-nums text-[#888888]">{elapsed}s</span>
                 </div>
+                <ul className="space-y-3">
+                  {LOADING_STEPS.map((step, idx) => {
+                    const isActive = idx === currentStep
+                    const isDone = currentStep > idx
+                    return (
+                      <li key={step.label} className="flex items-center gap-3">
+                        <span
+                          className={
+                            isActive
+                              ? 'h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[#f97316]'
+                              : isDone
+                              ? 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#f97316]/50'
+                              : 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#2a2a2a]'
+                          }
+                        />
+                        <span
+                          className={`text-sm ${
+                            isActive ? 'text-[#ffffff]' : isDone ? 'text-[#888888]' : 'text-[#555555]'
+                          }`}
+                        >
+                          {step.label}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
               </section>
             )}
 
@@ -643,6 +717,10 @@ export default function App() {
             )}
           </>
         )}
+
+        <footer className="mt-12 border-t border-[#1a1a1a] pt-6 text-center text-xs text-[#555555]">
+          nbascout.app · Built with Claude AI · Free during beta
+        </footer>
 
       </main>
     </div>
