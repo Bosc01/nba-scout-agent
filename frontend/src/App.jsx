@@ -9,23 +9,22 @@ const PLACEHOLDER_EXAMPLES = ['Cooper Flagg', 'Zaccharie Risacher', 'Camden Heid
 // Multi-step loading indicator — step is chosen by elapsed seconds (`until` is exclusive upper bound).
 const LOADING_STEPS = [
   { label: 'Searching Basketball Reference…', until: 5 },
-  { label: 'Checking Sports Reference CBB…', until: 10 },
+  { label: 'Checking college stats…', until: 10 },
   { label: 'Running web searches…', until: 20 },
   { label: 'Synthesizing report…', until: Infinity },
 ]
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-function getConfidenceStyle(confidence) {
-  if (confidence >= 0.7) return 'bg-[#22c55e]/20 text-[#22c55e] border-[#22c55e]/40'
-  if (confidence >= 0.4) return 'bg-[#eab308]/20 text-[#eab308] border-[#eab308]/40'
-  return 'bg-[#888888]/20 text-[#cfcfcf] border-[#888888]/40'
-}
-
-function getProfileLabel(confidence) {
-  if (confidence >= 0.7) return 'Full Profile'
-  if (confidence >= 0.4) return 'Partial Profile'
-  return 'Limited Data'
+// Profile tier drives the badge style and the report card's colored top border.
+function getProfileTheme(confidence) {
+  if (confidence >= 0.7) {
+    return { label: 'Full Profile', badge: 'border-[#16A34A]/30 bg-[#16A34A]/10 text-[#16A34A]', border: '#16A34A' }
+  }
+  if (confidence >= 0.4) {
+    return { label: 'Partial Profile', badge: 'border-[#D97706]/30 bg-[#D97706]/10 text-[#D97706]', border: '#D97706' }
+  }
+  return { label: 'Limited Data', badge: 'border-[#64748B]/30 bg-[#64748B]/10 text-[#64748B]', border: '#64748B' }
 }
 
 function formatStat(value, isPercent = false) {
@@ -57,16 +56,37 @@ function weightToLbs(w) {
   return m ? parseFloat(m[1]) : null
 }
 
+// ─── icons ──────────────────────────────────────────────────────────────────
+
+function LinkIcon({ className = 'h-3.5 w-3.5' }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  )
+}
+
 // ─── ReportCard ─────────────────────────────────────────────────────────────
 
 function ReportCard({ report, onShare, copied, responseTime }) {
+  const s = report?.stats ?? {}
   const stats = [
-    { label: 'PTS', value: formatStat(report?.stats?.pts) },
-    { label: 'REB', value: formatStat(report?.stats?.reb) },
-    { label: 'AST', value: formatStat(report?.stats?.ast) },
-    { label: 'FG%', value: formatStat(report?.stats?.fg_pct, true) },
-    { label: '3PT%', value: formatStat(report?.stats?.three_pct, true) },
-    { label: 'FT%', value: formatStat(report?.stats?.ft_pct, true) },
+    { label: 'PTS', value: formatStat(s.pts), good: typeof s.pts === 'number' && s.pts >= 15 },
+    { label: 'REB', value: formatStat(s.reb), good: typeof s.reb === 'number' && s.reb >= 7 },
+    { label: 'AST', value: formatStat(s.ast), good: typeof s.ast === 'number' && s.ast >= 4 },
+    { label: 'FG%', value: formatStat(s.fg_pct, true), good: typeof s.fg_pct === 'number' && s.fg_pct >= 0.47 },
+    { label: '3PT%', value: formatStat(s.three_pct, true), good: typeof s.three_pct === 'number' && s.three_pct >= 0.36 },
+    { label: 'FT%', value: formatStat(s.ft_pct, true), good: typeof s.ft_pct === 'number' && s.ft_pct >= 0.78 },
   ]
   const physical = [
     { label: 'Height', value: report?.physical?.height ?? '--' },
@@ -74,126 +94,124 @@ function ReportCard({ report, onShare, copied, responseTime }) {
     { label: 'Wingspan', value: report?.physical?.wingspan ?? '--' },
   ]
   const confidence = typeof report?.confidence === 'number' ? report.confidence : 0
+  const theme = getProfileTheme(confidence)
+  const meta = [report.position ?? '--', report.team ?? '--', report.age ?? '--'].join('  ·  ')
 
   return (
-    <section className="rounded-xl border border-[#2a2a2a] border-t-2 border-t-[#f97316] bg-[#141414] p-6">
-      <div className="mb-5 border-b border-[#2a2a2a] pb-5">
+    <section
+      className="rounded-xl border border-t-4 border-[#E2E8F0] bg-white p-6 shadow-sm"
+      style={{ borderTopColor: theme.border }}
+    >
+      <div className="mb-5 border-b border-[#E2E8F0] pb-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h2 className="text-4xl font-semibold text-[#ffffff]">{report.player_name ?? '--'}</h2>
+          <div className="min-w-0">
+            <h2 className="text-3xl font-bold tracking-tight text-[#1E3A5F] sm:text-4xl">
+              {report.player_name ?? '--'}
+            </h2>
+            <p className="mt-1 text-sm text-[#64748B]">{meta}</p>
+          </div>
           {onShare && (
-            <div className="relative pt-1">
+            <div className="relative">
               <button
                 type="button"
                 onClick={onShare}
-                className="rounded-md border border-[#2a2a2a] bg-[#141414] px-3 py-1 text-xs font-semibold text-[#888888] transition hover:border-[#3a3a3a] hover:text-[#ffffff]"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#2563EB] px-3 py-1.5 text-xs font-semibold text-[#2563EB] transition hover:bg-[#2563EB]/5"
               >
-                Share
+                <LinkIcon />
+                Share Report
               </button>
               {copied && (
-                <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 rounded-md border border-[#2a2a2a] bg-[#101010] px-2 py-1 text-[10px] font-semibold text-[#888888]">
-                  Copied!
+                <span className="absolute right-0 top-full mt-2 whitespace-nowrap rounded-md border border-[#E2E8F0] bg-white px-2 py-1 text-[10px] font-semibold text-[#64748B] shadow-sm">
+                  Link copied!
                 </span>
               )}
             </div>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[#f97316]">
-          <span>{report.position ?? '--'}</span>
-          <span>{report.team ?? '--'}</span>
-          <span>{report.age ?? '--'}</span>
-        </div>
         <div className="mt-3">
-          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getConfidenceStyle(confidence)}`}>
-            {getProfileLabel(confidence)}
+          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${theme.badge}`}>
+            {theme.label}
           </span>
         </div>
-        <p className="mt-2 text-xs text-[#888888]">Generated just now</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {stats.map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-[#2a2a2a] bg-[#141414] p-3 transition-colors hover:bg-[#1c1c1c]">
-            <p className="text-xs uppercase tracking-wide text-[#888888]">{stat.label}</p>
-            <p className="mt-1 text-2xl font-semibold text-[#ffffff]">{stat.value}</p>
+          <div key={stat.label} className="rounded-lg border border-[#E2E8F0] bg-white p-3">
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs font-medium uppercase tracking-wide text-[#64748B]">{stat.label}</p>
+              {stat.good && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#16A34A]" aria-label="strong" />}
+            </div>
+            <p className="mt-1 text-2xl font-bold text-[#1E3A5F]">{stat.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="mt-4 grid grid-cols-3 gap-3">
         {physical.map((item) => (
-          <div key={item.label} className="rounded-lg border border-[#2a2a2a] bg-[#141414] p-3">
-            <p className="text-xs uppercase tracking-wide text-[#888888]">{item.label}</p>
-            <p className="mt-1 text-lg font-semibold text-[#ffffff]">{item.value}</p>
+          <div key={item.label} className="rounded-lg border border-[#E2E8F0] bg-white p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-[#64748B]">{item.label}</p>
+            <p className="mt-1 text-lg font-bold text-[#1E3A5F]">{item.value}</p>
           </div>
         ))}
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border-l-4 border-[#22c55e] bg-[#101010] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[#22c55e]">Strengths</h3>
-          <ul className="space-y-2 text-sm text-[#ffffff]">
+        <div className="rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#16A34A] bg-white p-4">
+          <h3 className="mb-3 text-sm font-semibold text-[#16A34A]">Strengths</h3>
+          <ul className="space-y-2 text-sm text-[#334155]">
             {(report.strengths ?? []).length > 0 ? (
               report.strengths.map((item, idx) => (
-                <li key={idx} className="flex items-start gap-2">
-                  <span className="shrink-0 font-semibold tabular-nums text-[#22c55e]">{idx + 1}.</span>
+                <li key={idx} className="flex items-start gap-2.5">
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#16A34A]" />
                   <span>{item}</span>
                 </li>
               ))
             ) : (
-              <li className="text-[#888888]">--</li>
+              <li className="text-[#94A3B8]">--</li>
             )}
           </ul>
         </div>
 
-        <div className="rounded-lg border-l-4 border-[#ef4444] bg-[#101010] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[#ef4444]">Weaknesses</h3>
-          <ul className="space-y-2 text-sm text-[#ffffff]">
+        <div className="rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#DC2626] bg-white p-4">
+          <h3 className="mb-3 text-sm font-semibold text-[#DC2626]">Weaknesses</h3>
+          <ul className="space-y-2 text-sm text-[#334155]">
             {(report.weaknesses ?? []).length > 0 ? (
               report.weaknesses.map((item, idx) => (
-                <li key={idx} className="flex items-start gap-2">
-                  <span className="shrink-0 font-semibold tabular-nums text-[#ef4444]">{idx + 1}.</span>
+                <li key={idx} className="flex items-start gap-2.5">
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#DC2626]" />
                   <span>{item}</span>
                 </li>
               ))
             ) : (
-              <li className="text-[#888888]">--</li>
+              <li className="text-[#94A3B8]">--</li>
             )}
           </ul>
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-[#f97316]/50 bg-[#f97316]/10 p-4">
-        <p className="text-xs uppercase tracking-wide text-[#f97316]">NBA Comparison</p>
-        <div className="mt-2 flex items-center gap-4">
-          <div
-            aria-hidden="true"
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#f97316]/40 bg-[#f97316]/10 text-2xl leading-none"
-          >
-            🏀
-          </div>
-          <div className="min-w-0">
-            <p className="text-2xl font-semibold text-[#ffffff]">{report.nba_comp?.name ?? '--'}</p>
-            <p className="mt-1 text-sm text-[#888888]">{report.nba_comp?.reasoning ?? '--'}</p>
-          </div>
-        </div>
+      <div className="mt-6 rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#1E3A5F] bg-white p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#1E3A5F]">NBA Comparison</p>
+        <p className="mt-1 text-2xl font-bold text-[#1E3A5F]">{report.nba_comp?.name ?? '--'}</p>
+        <p className="mt-2 text-sm text-[#64748B]">{report.nba_comp?.reasoning ?? '--'}</p>
       </div>
 
       {report.draft_projection !== null && (
-        <div className="mt-6 rounded-lg border border-[#f97316]/50 bg-[#f97316]/10 p-4">
-          <p className="text-xs uppercase tracking-wide text-[#f97316]">DRAFT PROJECTION</p>
-          <p className="mt-1 text-2xl font-semibold text-[#ffffff]">
+        <div className="mt-6 rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#2563EB] bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#2563EB]">Draft Projection</p>
+          <p className="mt-1 text-2xl font-bold text-[#1E3A5F]">
             {formatDraftProjectionRound(report.draft_projection?.round)}
             {report.draft_projection?.year !== null && report.draft_projection?.year !== undefined ? (
-              <span className="text-[#ffffff]/90"> ({report.draft_projection?.year})</span>
+              <span className="text-[#64748B]"> ({report.draft_projection?.year})</span>
             ) : null}
           </p>
-          <p className="mt-2 text-sm text-[#888888]">
+          <p className="mt-2 text-sm text-[#64748B]">
             {report.draft_projection?.notes?.trim() ? report.draft_projection?.notes : '--'}
           </p>
         </div>
       )}
 
-      <footer className="mt-6 border-t border-[#2a2a2a] pt-4 text-xs text-[#888888]">
+      <footer className="mt-6 border-t border-[#E2E8F0] pt-4 text-xs text-[#64748B]">
         <p>Report generated in {responseTime ?? report.response_time_seconds ?? '--'}s</p>
       </footer>
     </section>
@@ -203,123 +221,49 @@ function ReportCard({ report, onShare, copied, responseTime }) {
 // ─── HeadToHeadTable ─────────────────────────────────────────────────────────
 
 function HeadToHeadTable({ r1, r2 }) {
-  // highlight=true rows: winner orange, loser #888888, null → both white
-  // highlight=false rows: always white, no winner indicated
+  // highlight=true rows: better stat green, worse stat light-red background; ties/nulls neutral.
+  // highlight=false rows: always neutral, no winner indicated.
   const rows = [
-    {
-      label: 'PTS',
-      v1: r1?.stats?.pts,
-      v2: r2?.stats?.pts,
-      fmt: (v) => formatStat(v),
-      highlight: true,
-      cmp: (a, b) => a - b,
-    },
-    {
-      label: 'REB',
-      v1: r1?.stats?.reb,
-      v2: r2?.stats?.reb,
-      fmt: (v) => formatStat(v),
-      highlight: true,
-      cmp: (a, b) => a - b,
-    },
-    {
-      label: 'AST',
-      v1: r1?.stats?.ast,
-      v2: r2?.stats?.ast,
-      fmt: (v) => formatStat(v),
-      highlight: true,
-      cmp: (a, b) => a - b,
-    },
-    {
-      label: 'FG%',
-      v1: r1?.stats?.fg_pct,
-      v2: r2?.stats?.fg_pct,
-      fmt: (v) => formatStat(v, true),
-      highlight: true,
-      cmp: (a, b) => a - b,
-    },
-    {
-      label: '3PT%',
-      v1: r1?.stats?.three_pct,
-      v2: r2?.stats?.three_pct,
-      fmt: (v) => formatStat(v, true),
-      highlight: true,
-      cmp: (a, b) => a - b,
-    },
-    {
-      label: 'FT%',
-      v1: r1?.stats?.ft_pct,
-      v2: r2?.stats?.ft_pct,
-      fmt: (v) => formatStat(v, true),
-      highlight: true,
-      cmp: (a, b) => a - b,
-    },
-    {
-      label: 'Height',
-      v1: r1?.physical?.height,
-      v2: r2?.physical?.height,
-      fmt: (v) => v ?? '--',
-      highlight: false,
-    },
-    {
-      label: 'Weight',
-      v1: r1?.physical?.weight,
-      v2: r2?.physical?.weight,
-      fmt: (v) => v ?? '--',
-      highlight: false,
-    },
-    {
-      label: 'Wingspan',
-      v1: r1?.physical?.wingspan,
-      v2: r2?.physical?.wingspan,
-      fmt: (v) => v ?? '--',
-      highlight: false,
-    },
+    { label: 'PTS', v1: r1?.stats?.pts, v2: r2?.stats?.pts, fmt: (v) => formatStat(v), highlight: true, cmp: (a, b) => a - b },
+    { label: 'REB', v1: r1?.stats?.reb, v2: r2?.stats?.reb, fmt: (v) => formatStat(v), highlight: true, cmp: (a, b) => a - b },
+    { label: 'AST', v1: r1?.stats?.ast, v2: r2?.stats?.ast, fmt: (v) => formatStat(v), highlight: true, cmp: (a, b) => a - b },
+    { label: 'FG%', v1: r1?.stats?.fg_pct, v2: r2?.stats?.fg_pct, fmt: (v) => formatStat(v, true), highlight: true, cmp: (a, b) => a - b },
+    { label: '3PT%', v1: r1?.stats?.three_pct, v2: r2?.stats?.three_pct, fmt: (v) => formatStat(v, true), highlight: true, cmp: (a, b) => a - b },
+    { label: 'FT%', v1: r1?.stats?.ft_pct, v2: r2?.stats?.ft_pct, fmt: (v) => formatStat(v, true), highlight: true, cmp: (a, b) => a - b },
+    { label: 'Height', v1: r1?.physical?.height, v2: r2?.physical?.height, fmt: (v) => v ?? '--', highlight: false },
+    { label: 'Weight', v1: r1?.physical?.weight, v2: r2?.physical?.weight, fmt: (v) => v ?? '--', highlight: false },
+    { label: 'Wingspan', v1: r1?.physical?.wingspan, v2: r2?.physical?.wingspan, fmt: (v) => v ?? '--', highlight: false },
   ]
 
+  const win = 'bg-[#16A34A]/10 text-[#16A34A] font-bold'
+  const lose = 'bg-[#DC2626]/10 text-[#0F172A]'
+  const neutral = 'text-[#0F172A] font-semibold'
+
   return (
-    <div className="mb-4 overflow-x-auto">
-      <div className="min-w-[480px] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#141414]">
-      <div className="grid grid-cols-3 border-b border-[#2a2a2a] bg-[#101010] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-[#888888]">
-        <span>{r1?.player_name ?? 'Player 1'}</span>
-        <span className="text-center">Stat</span>
-        <span className="text-right">{r2?.player_name ?? 'Player 2'}</span>
-      </div>
-      {rows.map(({ label, v1, v2, fmt, highlight, cmp }) => {
-        const bothPresent = highlight && v1 != null && v2 != null
-        const diff = bothPresent ? cmp(v1, v2) : 0
-        const p1Win = bothPresent && diff > 0
-        const p2Win = bothPresent && diff < 0
+    <div className="mb-4 overflow-x-auto rounded-xl border border-[#E2E8F0] shadow-sm">
+      <div className="min-w-[480px] bg-white">
+        <div className="grid grid-cols-3 bg-[#1E3A5F] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-white">
+          <span className="truncate">{r1?.player_name ?? 'Player 1'}</span>
+          <span className="text-center text-white/60">Stat</span>
+          <span className="truncate text-right">{r2?.player_name ?? 'Player 2'}</span>
+        </div>
+        {rows.map(({ label, v1, v2, fmt, highlight, cmp }) => {
+          const bothPresent = highlight && v1 != null && v2 != null
+          const diff = bothPresent ? cmp(v1, v2) : 0
+          const p1Win = bothPresent && diff > 0
+          const p2Win = bothPresent && diff < 0
 
-        const cls1 = !highlight
-          ? 'text-[#ffffff]'
-          : p1Win
-          ? 'text-[#f97316]'
-          : p2Win
-          ? 'text-[#888888]'
-          : 'text-[#ffffff]'
+          const cls1 = !highlight ? neutral : p1Win ? win : p2Win ? lose : neutral
+          const cls2 = !highlight ? neutral : p2Win ? win : p1Win ? lose : neutral
 
-        const cls2 = !highlight
-          ? 'text-[#ffffff]'
-          : p2Win
-          ? 'text-[#f97316]'
-          : p1Win
-          ? 'text-[#888888]'
-          : 'text-[#ffffff]'
-
-        return (
-          <div
-            key={label}
-            className="grid grid-cols-3 border-b border-[#2a2a2a] px-4 py-3 last:border-b-0"
-          >
-            <span className={`text-sm font-semibold ${cls1}`}>{fmt(v1)}</span>
-            <span className="text-center text-xs uppercase tracking-wide text-[#888888]">
-              {label}
-            </span>
-            <span className={`text-right text-sm font-semibold ${cls2}`}>{fmt(v2)}</span>
-          </div>
-        )
-      })}
+          return (
+            <div key={label} className="grid grid-cols-3 border-t border-[#E2E8F0]">
+              <span className={`px-4 py-3 text-sm ${cls1}`}>{fmt(v1)}</span>
+              <span className="px-4 py-3 text-center text-xs uppercase tracking-wide text-[#64748B]">{label}</span>
+              <span className={`px-4 py-3 text-right text-sm ${cls2}`}>{fmt(v2)}</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -504,86 +448,92 @@ export default function App() {
   const currentStep = LOADING_STEPS.findIndex((s) => elapsed < s.until)
 
   const inputCls =
-    'h-12 w-full rounded-lg border border-[#2a2a2a] bg-[#141414] px-4 text-[#ffffff] ' +
-    'placeholder:text-[#888888] outline-none transition focus:border-[#f97316] focus:ring-2 focus:ring-[#f97316]/40'
+    'h-12 w-full rounded-lg border border-[#E2E8F0] bg-white px-4 text-[#0F172A] ' +
+    'placeholder:text-[#94A3B8] outline-none transition focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/20'
+
+  const primaryBtn =
+    'h-12 rounded-lg bg-[#2563EB] px-6 font-semibold text-white transition hover:bg-[#1D4ED8] ' +
+    'disabled:cursor-not-allowed disabled:opacity-50'
+
+  const tabs = [
+    { key: 'scout', label: 'Scout Player' },
+    { key: 'compare', label: 'Compare Players' },
+  ]
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] font-[system-ui] text-[#ffffff]">
-      <main className="mx-auto w-full max-w-[900px] px-4 py-10">
-
-        {/* header */}
-        <header className="mb-8 text-center">
-          <div className="flex items-center justify-center gap-2">
-            <h1 className="text-4xl font-semibold tracking-tight text-[#ffffff]">NBA Scout</h1>
-            <span className="rounded-md border border-[#f97316]/50 bg-[#f97316]/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#f97316]">
-              Beta
+    <div className="flex min-h-screen flex-col bg-[#F8FAFC] font-[Inter,system-ui] text-[#0F172A]">
+      {/* header bar */}
+      <header className="border-b border-[#E2E8F0] bg-white">
+        <div className="mx-auto w-full max-w-[960px] px-4">
+          <div className="flex items-center gap-2 pt-5">
+            <span className="text-2xl font-bold tracking-tight text-[#1E3A5F]">NBAScout</span>
+            <span className="rounded bg-[#2563EB] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+              AI
             </span>
           </div>
-          <div className="mx-auto mt-2 h-0.5 w-24 rounded-full bg-gradient-to-r from-transparent via-[#f97316] to-transparent" />
-          <p className="mx-auto mt-3 max-w-md text-sm text-[#888888]">
-            AI-powered scouting reports for college and international prospects — free during beta
-          </p>
-        </header>
-
-        {/* mode toggle */}
-        <div className="mb-6 flex justify-center">
-          <div className="inline-flex rounded-lg border border-[#2a2a2a] bg-[#141414] p-1 gap-1">
-            {['scout', 'compare'].map((m) => (
+          <p className="mt-1 text-sm text-[#64748B]">AI-powered prospect scouting</p>
+          <nav className="mt-4 flex gap-6">
+            {tabs.map((tab) => (
               <button
-                key={m}
+                key={tab.key}
                 type="button"
-                onClick={() => setMode(m)}
-                className={`rounded-md px-5 py-2 text-sm font-semibold transition ${
-                  mode === m
-                    ? 'bg-[#f97316] text-[#0a0a0a]'
-                    : 'text-[#888888] hover:text-[#ffffff]'
+                onClick={() => setMode(tab.key)}
+                className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-semibold transition ${
+                  mode === tab.key
+                    ? 'border-[#1E3A5F] text-[#1E3A5F]'
+                    : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
                 }`}
               >
-                {m === 'scout' ? 'Scout Player' : 'Compare Players'}
+                {tab.label}
               </button>
             ))}
-          </div>
+          </nav>
         </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-[960px] flex-1 px-4 py-8">
 
         {/* ── Scout mode ── */}
         {mode === 'scout' && (
           <>
-            <form onSubmit={handleSubmit} className="mb-2 flex flex-col gap-3">
-              <input
-                type="text"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                placeholder={`Try: ${PLACEHOLDER_EXAMPLES[placeholderIdx]}…`}
-                className={inputCls}
-                required
-              />
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="rounded-xl border border-[#E2E8F0] bg-white p-6 shadow-sm">
+              <form onSubmit={handleSubmit} className="flex flex-col gap-3">
                 <input
                   type="text"
-                  value={teamOrSchool}
-                  onChange={(e) => setTeamOrSchool(e.target.value)}
-                  placeholder="Team or school (optional)"
-                  className="h-10 w-full rounded-lg border border-[#2a2a2a] bg-[#141414] px-3 text-sm text-[#ffffff] placeholder:text-[#888888] outline-none transition focus:border-[#f97316] focus:ring-2 focus:ring-[#f97316]/30 sm:max-w-[320px]"
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  placeholder={`Try: ${PLACEHOLDER_EXAMPLES[placeholderIdx]}…`}
+                  className={inputCls}
+                  required
                 />
-                <button
-                  type="submit"
-                  disabled={loading || !playerName.trim()}
-                  className="h-12 w-full rounded-lg bg-[#f97316] px-5 font-semibold text-[#0a0a0a] transition hover:bg-[#fb923c] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                >
-                  Generate Report
-                </button>
-              </div>
-            </form>
-            <p className="mb-8 flex items-center gap-1.5 text-xs text-[#888888]">
-              <kbd className="rounded border border-[#2a2a2a] bg-[#141414] px-1.5 py-0.5 font-sans text-[10px] text-[#cfcfcf]">
-                ↵
-              </kbd>
-              Enter to search
-            </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    value={teamOrSchool}
+                    onChange={(e) => setTeamOrSchool(e.target.value)}
+                    placeholder="Team or school (optional)"
+                    className="h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] placeholder:text-[#94A3B8] outline-none transition focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/20 sm:max-w-[320px]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !playerName.trim()}
+                    className={`${primaryBtn} w-full sm:w-auto`}
+                  >
+                    Generate Report
+                  </button>
+                </div>
+              </form>
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-[#64748B]">
+                <kbd className="rounded border border-[#E2E8F0] bg-[#F8FAFC] px-1.5 py-0.5 font-sans text-[10px] text-[#64748B]">
+                  ↵
+                </kbd>
+                Enter to search
+              </p>
+            </div>
 
             {!report && !loading && recentSearches.length > 0 && (
-              <div className="mb-6">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#888888]">
+              <div className="mt-6">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
                   Recent Searches
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -596,11 +546,11 @@ export default function App() {
                         setTeamOrSchool('')
                         void generateReport(entry.player_name, '')
                       }}
-                      className="flex items-center gap-1.5 rounded-full border border-[#2a2a2a] bg-[#141414] px-3 py-1.5 text-sm transition hover:border-[#f97316]/50 hover:bg-[#1a1a1a]"
+                      className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm shadow-sm transition hover:border-[#2563EB]/50 hover:bg-[#2563EB]/5"
                     >
-                      <span className="font-medium text-[#ffffff]">{entry.player_name}</span>
+                      <span className="font-medium text-[#0F172A]">{entry.player_name}</span>
                       {entry.position && (
-                        <span className="text-xs text-[#f97316]">{entry.position}</span>
+                        <span className="text-xs text-[#2563EB]">{entry.position}</span>
                       )}
                     </button>
                   ))}
@@ -609,12 +559,9 @@ export default function App() {
             )}
 
             {loading && (
-              <section className="mb-6 rounded-lg border border-[#2a2a2a] bg-[#141414] p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#ffffff]">Scouting {playerName}…</p>
-                  <span className="text-xs tabular-nums text-[#888888]">{elapsed}s</span>
-                </div>
-                <ul className="space-y-3">
+              <div className="mt-6 flex flex-col items-center gap-5 rounded-xl border border-[#E2E8F0] bg-white p-8 shadow-sm">
+                <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#E2E8F0] border-t-[#1E3A5F]" />
+                <ul className="w-full max-w-xs space-y-3">
                   {LOADING_STEPS.map((step, idx) => {
                     const isActive = idx === currentStep
                     const isDone = currentStep > idx
@@ -623,15 +570,15 @@ export default function App() {
                         <span
                           className={
                             isActive
-                              ? 'h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[#f97316]'
+                              ? 'h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[#2563EB]'
                               : isDone
-                              ? 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#f97316]/50'
-                              : 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#2a2a2a]'
+                              ? 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#2563EB]/40'
+                              : 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#E2E8F0]'
                           }
                         />
                         <span
                           className={`text-sm ${
-                            isActive ? 'text-[#ffffff]' : isDone ? 'text-[#888888]' : 'text-[#555555]'
+                            isActive ? 'font-medium text-[#0F172A]' : isDone ? 'text-[#64748B]' : 'text-[#94A3B8]'
                           }`}
                         >
                           {step.label}
@@ -640,17 +587,22 @@ export default function App() {
                     )
                   })}
                 </ul>
-              </section>
+                <p className="text-xs tabular-nums text-[#64748B]">
+                  Scouting {playerName}… {elapsed}s
+                </p>
+              </div>
             )}
 
             {error && (
-              <section className="mb-6 rounded-lg border border-[#ef4444] bg-[#ef4444]/10 p-4 text-sm text-[#ef4444]">
+              <section className="mt-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm text-[#DC2626]">
                 {error}
               </section>
             )}
 
             {report && !loading && (
-              <ReportCard report={report} onShare={handleShare} copied={copied} />
+              <div className="mt-6">
+                <ReportCard report={report} onShare={handleShare} copied={copied} />
+              </div>
             )}
           </>
         )}
@@ -658,71 +610,92 @@ export default function App() {
         {/* ── Compare mode ── */}
         {mode === 'compare' && (
           <>
-            <form onSubmit={handleCompare} className="mb-8 flex flex-col gap-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <input
-                  type="text"
-                  value={p1Name}
-                  onChange={(e) => setP1Name(e.target.value)}
-                  placeholder="Player 1 name"
-                  className={inputCls}
-                  required
-                />
-                <input
-                  type="text"
-                  value={p2Name}
-                  onChange={(e) => setP2Name(e.target.value)}
-                  placeholder="Player 2 name"
-                  className={inputCls}
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={compareLoading || !p1Name.trim() || !p2Name.trim()}
-                className="h-12 w-full rounded-lg bg-[#f97316] px-5 font-semibold text-[#0a0a0a] transition hover:bg-[#fb923c] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:self-start"
-              >
-                Compare
-              </button>
-            </form>
+            <div className="rounded-xl border border-[#E2E8F0] bg-white p-6 shadow-sm">
+              <form onSubmit={handleCompare} className="flex flex-col gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input
+                    type="text"
+                    value={p1Name}
+                    onChange={(e) => setP1Name(e.target.value)}
+                    placeholder="Player 1 name"
+                    className={inputCls}
+                    required
+                  />
+                  <input
+                    type="text"
+                    value={p2Name}
+                    onChange={(e) => setP2Name(e.target.value)}
+                    placeholder="Player 2 name"
+                    className={inputCls}
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={compareLoading || !p1Name.trim() || !p2Name.trim()}
+                  className={`${primaryBtn} w-full sm:w-auto sm:self-start`}
+                >
+                  Compare Players
+                </button>
+              </form>
+            </div>
 
             {compareLoading && (
-              <section className="mb-6 rounded-lg border border-[#2a2a2a] bg-[#141414] p-4">
-                <div className="flex items-center gap-3">
-                  <span className="h-3 w-3 animate-pulse rounded-full bg-[#f97316]" />
-                  <p className="text-sm text-[#888888]">
-                    Comparing {p1Name} vs {p2Name}… this takes 30–60 seconds
-                  </p>
-                </div>
-              </section>
+              <div className="mt-6 flex flex-col items-center gap-4 rounded-xl border border-[#E2E8F0] bg-white p-8 shadow-sm">
+                <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#E2E8F0] border-t-[#1E3A5F]" />
+                <p className="text-sm text-[#64748B]">
+                  Comparing {p1Name} vs {p2Name}… this takes 30–60 seconds
+                </p>
+              </div>
             )}
 
             {compareError && (
-              <section className="mb-6 rounded-lg border border-[#ef4444] bg-[#ef4444]/10 p-4 text-sm text-[#ef4444]">
+              <section className="mt-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm text-[#DC2626]">
                 {compareError}
               </section>
             )}
 
             {comparison && !compareLoading && (
-              <>
+              <div className="mt-6">
                 <HeadToHeadTable r1={comparison.player_one} r2={comparison.player_two} />
-                <p className="mb-6 text-center text-xs text-[#888888]">
+                <p className="mb-6 text-center text-xs text-[#64748B]">
                   Comparison generated in {comparison.response_time_seconds ?? '--'}s
                 </p>
                 <div className="grid gap-6 lg:grid-cols-2">
                   <ReportCard report={comparison.player_one} />
                   <ReportCard report={comparison.player_two} />
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
 
-        <footer className="mt-12 border-t border-[#1a1a1a] pt-6 text-center text-xs text-[#555555]">
-          nbascout.app · Built with Claude AI · Free during beta
-        </footer>
-
       </main>
+
+      {/* page footer */}
+      <footer className="border-t border-[#E2E8F0] bg-[#F1F5F9]">
+        <div className="mx-auto flex w-full max-w-[960px] flex-col items-center justify-between gap-3 px-4 py-6 text-sm text-[#64748B] sm:flex-row">
+          <p>nbascout.app — Free AI scouting for college and international prospects</p>
+          <div className="flex gap-4">
+            <a
+              href="https://x.com"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium transition hover:text-[#2563EB]"
+            >
+              Twitter/X
+            </a>
+            <a
+              href="https://github.com"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium transition hover:text-[#2563EB]"
+            >
+              GitHub
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
