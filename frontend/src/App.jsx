@@ -14,17 +14,21 @@ const LOADING_STEPS = [
   { label: 'Synthesizing report…', until: Infinity },
 ]
 
+// Shared surface styles — deep navy card with subtle depth, and a lighter inner tile.
+const CARD = 'rounded-lg border border-[#233251] bg-[#111A2E] shadow-[0_16px_50px_-28px_rgba(0,0,0,0.9)]'
+const TILE = 'rounded-lg border border-[#233251] bg-[#17233E]'
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 // Profile tier drives the badge style and the report card's colored top border.
 function getProfileTheme(confidence) {
   if (confidence >= 0.7) {
-    return { label: 'Full Profile', badge: 'border-[#16A34A]/30 bg-[#16A34A]/10 text-[#16A34A]', border: '#16A34A' }
+    return { label: 'Full Profile', badge: 'border-[#34D399]/30 bg-[#34D399]/10 text-[#34D399]', border: '#34D399' }
   }
   if (confidence >= 0.4) {
-    return { label: 'Partial Profile', badge: 'border-[#D97706]/30 bg-[#D97706]/10 text-[#D97706]', border: '#D97706' }
+    return { label: 'Partial Profile', badge: 'border-[#FBBF24]/30 bg-[#FBBF24]/10 text-[#FBBF24]', border: '#FBBF24' }
   }
-  return { label: 'Limited Data', badge: 'border-[#64748B]/30 bg-[#64748B]/10 text-[#64748B]', border: '#64748B' }
+  return { label: 'Limited Data', badge: 'border-[#94A3B8]/30 bg-[#94A3B8]/10 text-[#94A3B8]', border: '#94A3B8' }
 }
 
 function formatStat(value, isPercent = false) {
@@ -98,30 +102,27 @@ function ReportCard({ report, onShare, copied, responseTime }) {
   const meta = [report.position ?? '--', report.team ?? '--', report.age ?? '--'].join('  ·  ')
 
   return (
-    <section
-      className="rounded-xl border border-t-4 border-[#E2E8F0] bg-white p-6 shadow-sm"
-      style={{ borderTopColor: theme.border }}
-    >
-      <div className="mb-5 border-b border-[#E2E8F0] pb-5">
+    <section className={`${CARD} border-t-4 p-6`} style={{ borderTopColor: theme.border }}>
+      <div className="mb-5 border-b border-[#233251] pb-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-3xl font-bold tracking-tight text-[#1E3A5F] sm:text-4xl">
+            <h2 className="text-3xl font-bold tracking-tight text-[#F3F8FF] sm:text-4xl">
               {report.player_name ?? '--'}
             </h2>
-            <p className="mt-1 text-sm text-[#64748B]">{meta}</p>
+            <p className="mt-1.5 text-sm text-[#94A3B8]">{meta}</p>
           </div>
           {onShare && (
             <div className="relative">
               <button
                 type="button"
                 onClick={onShare}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#2563EB] px-3 py-1.5 text-xs font-semibold text-[#2563EB] transition hover:bg-[#2563EB]/5"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#38BDF8]/40 bg-[#38BDF8]/5 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:border-[#38BDF8] hover:bg-[#38BDF8]/10"
               >
                 <LinkIcon />
                 Share Report
               </button>
               {copied && (
-                <span className="absolute right-0 top-full mt-2 whitespace-nowrap rounded-md border border-[#E2E8F0] bg-white px-2 py-1 text-[10px] font-semibold text-[#64748B] shadow-sm">
+                <span className="absolute right-0 top-full mt-2 whitespace-nowrap rounded-md border border-[#233251] bg-[#0C1424] px-2 py-1 text-[10px] font-semibold text-[#94A3B8] shadow-lg">
                   Link copied!
                 </span>
               )}
@@ -137,81 +138,81 @@ function ReportCard({ report, onShare, copied, responseTime }) {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {stats.map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-[#E2E8F0] bg-white p-3">
+          <div key={stat.label} className={`${TILE} p-3 transition-colors hover:border-[#38BDF8]/40`}>
             <div className="flex items-center gap-1.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-[#64748B]">{stat.label}</p>
-              {stat.good && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#16A34A]" aria-label="strong" />}
+              <p className="text-xs font-medium uppercase tracking-wider text-[#94A3B8]">{stat.label}</p>
+              {stat.good && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#34D399]" aria-label="strong" />}
             </div>
-            <p className="mt-1 text-2xl font-bold text-[#1E3A5F]">{stat.value}</p>
+            <p className="mt-1 text-2xl font-bold text-[#F3F8FF]">{stat.value}</p>
           </div>
         ))}
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-3">
         {physical.map((item) => (
-          <div key={item.label} className="rounded-lg border border-[#E2E8F0] bg-white p-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-[#64748B]">{item.label}</p>
-            <p className="mt-1 text-lg font-bold text-[#1E3A5F]">{item.value}</p>
+          <div key={item.label} className={`${TILE} p-3`}>
+            <p className="text-xs font-medium uppercase tracking-wider text-[#94A3B8]">{item.label}</p>
+            <p className="mt-1 text-lg font-bold text-[#F3F8FF]">{item.value}</p>
           </div>
         ))}
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#16A34A] bg-white p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[#16A34A]">Strengths</h3>
-          <ul className="space-y-2 text-sm text-[#334155]">
+        <div className={`${TILE} border-l-4 border-l-[#34D399] p-4`}>
+          <h3 className="mb-3 text-sm font-semibold text-[#34D399]">Strengths</h3>
+          <ul className="space-y-2 text-sm text-[#CBD6E6]">
             {(report.strengths ?? []).length > 0 ? (
               report.strengths.map((item, idx) => (
                 <li key={idx} className="flex items-start gap-2.5">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#16A34A]" />
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#34D399]" />
                   <span>{item}</span>
                 </li>
               ))
             ) : (
-              <li className="text-[#94A3B8]">--</li>
+              <li className="text-[#64748B]">--</li>
             )}
           </ul>
         </div>
 
-        <div className="rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#DC2626] bg-white p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[#DC2626]">Weaknesses</h3>
-          <ul className="space-y-2 text-sm text-[#334155]">
+        <div className={`${TILE} border-l-4 border-l-[#F87171] p-4`}>
+          <h3 className="mb-3 text-sm font-semibold text-[#F87171]">Weaknesses</h3>
+          <ul className="space-y-2 text-sm text-[#CBD6E6]">
             {(report.weaknesses ?? []).length > 0 ? (
               report.weaknesses.map((item, idx) => (
                 <li key={idx} className="flex items-start gap-2.5">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#DC2626]" />
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#F87171]" />
                   <span>{item}</span>
                 </li>
               ))
             ) : (
-              <li className="text-[#94A3B8]">--</li>
+              <li className="text-[#64748B]">--</li>
             )}
           </ul>
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#1E3A5F] bg-white p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#1E3A5F]">NBA Comparison</p>
-        <p className="mt-1 text-2xl font-bold text-[#1E3A5F]">{report.nba_comp?.name ?? '--'}</p>
-        <p className="mt-2 text-sm text-[#64748B]">{report.nba_comp?.reasoning ?? '--'}</p>
+      <div className="mt-6 rounded-lg border border-[#38BDF8]/30 bg-[#38BDF8]/[0.08] p-4">
+        <p className="text-xs font-semibold uppercase tracking-wider text-[#7DD3FC]">NBA Comparison</p>
+        <p className="mt-1 text-2xl font-bold text-[#F3F8FF]">{report.nba_comp?.name ?? '--'}</p>
+        <p className="mt-2 text-sm text-[#94A3B8]">{report.nba_comp?.reasoning ?? '--'}</p>
       </div>
 
       {report.draft_projection !== null && (
-        <div className="mt-6 rounded-lg border border-l-4 border-[#E2E8F0] border-l-[#2563EB] bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#2563EB]">Draft Projection</p>
-          <p className="mt-1 text-2xl font-bold text-[#1E3A5F]">
+        <div className={`${TILE} mt-6 border-l-4 border-l-[#38BDF8] p-4`}>
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#7DD3FC]">Draft Projection</p>
+          <p className="mt-1 text-2xl font-bold text-[#F3F8FF]">
             {formatDraftProjectionRound(report.draft_projection?.round)}
             {report.draft_projection?.year !== null && report.draft_projection?.year !== undefined ? (
-              <span className="text-[#64748B]"> ({report.draft_projection?.year})</span>
+              <span className="text-[#94A3B8]"> ({report.draft_projection?.year})</span>
             ) : null}
           </p>
-          <p className="mt-2 text-sm text-[#64748B]">
+          <p className="mt-2 text-sm text-[#94A3B8]">
             {report.draft_projection?.notes?.trim() ? report.draft_projection?.notes : '--'}
           </p>
         </div>
       )}
 
-      <footer className="mt-6 border-t border-[#E2E8F0] pt-4 text-xs text-[#64748B]">
+      <footer className="mt-6 border-t border-[#233251] pt-4 text-xs text-[#64748B]">
         <p>Report generated in {responseTime ?? report.response_time_seconds ?? '--'}s</p>
       </footer>
     </section>
@@ -221,7 +222,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
 // ─── HeadToHeadTable ─────────────────────────────────────────────────────────
 
 function HeadToHeadTable({ r1, r2 }) {
-  // highlight=true rows: better stat green, worse stat light-red background; ties/nulls neutral.
+  // highlight=true rows: better stat blue-green, worse stat red-tinted; ties/nulls neutral.
   // highlight=false rows: always neutral, no winner indicated.
   const rows = [
     { label: 'PTS', v1: r1?.stats?.pts, v2: r2?.stats?.pts, fmt: (v) => formatStat(v), highlight: true, cmp: (a, b) => a - b },
@@ -235,17 +236,17 @@ function HeadToHeadTable({ r1, r2 }) {
     { label: 'Wingspan', v1: r1?.physical?.wingspan, v2: r2?.physical?.wingspan, fmt: (v) => v ?? '--', highlight: false },
   ]
 
-  const win = 'bg-[#16A34A]/10 text-[#16A34A] font-bold'
-  const lose = 'bg-[#DC2626]/10 text-[#0F172A]'
-  const neutral = 'text-[#0F172A] font-semibold'
+  const win = 'bg-[#34D399]/12 text-[#34D399] font-bold'
+  const lose = 'bg-[#F87171]/12 text-[#EAF0FA]'
+  const neutral = 'text-[#EAF0FA] font-semibold'
 
   return (
-    <div className="mb-4 overflow-x-auto rounded-xl border border-[#E2E8F0] shadow-sm">
-      <div className="min-w-[480px] bg-white">
-        <div className="grid grid-cols-3 bg-[#1E3A5F] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-white">
-          <span className="truncate">{r1?.player_name ?? 'Player 1'}</span>
-          <span className="text-center text-white/60">Stat</span>
-          <span className="truncate text-right">{r2?.player_name ?? 'Player 2'}</span>
+    <div className={`mb-4 overflow-x-auto ${CARD}`}>
+      <div className="min-w-[480px]">
+        <div className="grid grid-cols-3 border-b border-[#233251] bg-[#17233E] px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
+          <span className="truncate text-[#F3F8FF]">{r1?.player_name ?? 'Player 1'}</span>
+          <span className="text-center">Stat</span>
+          <span className="truncate text-right text-[#F3F8FF]">{r2?.player_name ?? 'Player 2'}</span>
         </div>
         {rows.map(({ label, v1, v2, fmt, highlight, cmp }) => {
           const bothPresent = highlight && v1 != null && v2 != null
@@ -257,9 +258,9 @@ function HeadToHeadTable({ r1, r2 }) {
           const cls2 = !highlight ? neutral : p2Win ? win : p1Win ? lose : neutral
 
           return (
-            <div key={label} className="grid grid-cols-3 border-t border-[#E2E8F0]">
+            <div key={label} className="grid grid-cols-3 border-t border-[#233251]">
               <span className={`px-4 py-3 text-sm ${cls1}`}>{fmt(v1)}</span>
-              <span className="px-4 py-3 text-center text-xs uppercase tracking-wide text-[#64748B]">{label}</span>
+              <span className="px-4 py-3 text-center text-xs uppercase tracking-wider text-[#94A3B8]">{label}</span>
               <span className={`px-4 py-3 text-right text-sm ${cls2}`}>{fmt(v2)}</span>
             </div>
           )
@@ -448,12 +449,13 @@ export default function App() {
   const currentStep = LOADING_STEPS.findIndex((s) => elapsed < s.until)
 
   const inputCls =
-    'h-12 w-full rounded-lg border border-[#E2E8F0] bg-white px-4 text-[#0F172A] ' +
-    'placeholder:text-[#94A3B8] outline-none transition focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/20'
+    'h-12 w-full rounded-lg border border-[#233251] bg-[#0C1424] px-4 text-[#EAF0FA] ' +
+    'placeholder:text-[#5D6B84] outline-none transition focus:border-[#38BDF8] focus:ring-2 focus:ring-[#38BDF8]/25'
 
   const primaryBtn =
-    'h-12 rounded-lg bg-[#2563EB] px-6 font-semibold text-white transition hover:bg-[#1D4ED8] ' +
-    'disabled:cursor-not-allowed disabled:opacity-50'
+    'inline-flex h-12 items-center justify-center rounded-lg bg-gradient-to-b from-[#38BDF8] to-[#0EA5E9] px-6 ' +
+    'font-semibold text-[#06131F] shadow-lg shadow-[#38BDF8]/25 transition hover:from-[#7DD3FC] hover:to-[#38BDF8] ' +
+    'disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none'
 
   const tabs = [
     { key: 'scout', label: 'Scout Player' },
@@ -461,17 +463,20 @@ export default function App() {
   ]
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F8FAFC] font-[Inter,system-ui] text-[#0F172A]">
+    <div className="relative flex min-h-screen flex-col bg-[#0A0F1C] font-[Inter,system-ui] text-[#EAF0FA]">
+      {/* subtle premium glow behind the top of the page */}
+      <div className="pointer-events-none fixed inset-x-0 top-0 -z-0 h-72 bg-gradient-to-b from-[#38BDF8]/10 via-[#38BDF8]/[0.03] to-transparent" />
+
       {/* header bar */}
-      <header className="border-b border-[#E2E8F0] bg-white">
+      <header className="sticky top-0 z-20 border-b border-[#233251] bg-[#0A0F1C]/85 backdrop-blur">
         <div className="mx-auto w-full max-w-[960px] px-4">
           <div className="flex items-center gap-2 pt-5">
-            <span className="text-2xl font-bold tracking-tight text-[#1E3A5F]">NBAScout</span>
-            <span className="rounded bg-[#2563EB] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+            <span className="text-2xl font-bold tracking-tight text-[#F3F8FF]">NBAScout</span>
+            <span className="rounded bg-[#38BDF8] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#06131F]">
               AI
             </span>
           </div>
-          <p className="mt-1 text-sm text-[#64748B]">AI-powered prospect scouting</p>
+          <p className="mt-1 text-sm text-[#94A3B8]">AI-powered prospect scouting</p>
           <nav className="mt-4 flex gap-6">
             {tabs.map((tab) => (
               <button
@@ -480,8 +485,8 @@ export default function App() {
                 onClick={() => setMode(tab.key)}
                 className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-semibold transition ${
                   mode === tab.key
-                    ? 'border-[#1E3A5F] text-[#1E3A5F]'
-                    : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
+                    ? 'border-[#38BDF8] text-[#F3F8FF]'
+                    : 'border-transparent text-[#94A3B8] hover:text-[#EAF0FA]'
                 }`}
               >
                 {tab.label}
@@ -491,12 +496,12 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[960px] flex-1 px-4 py-8">
+      <main className="relative z-10 mx-auto w-full max-w-[960px] flex-1 px-4 py-8">
 
         {/* ── Scout mode ── */}
         {mode === 'scout' && (
           <>
-            <div className="rounded-xl border border-[#E2E8F0] bg-white p-6 shadow-sm">
+            <div className={`${CARD} p-6`}>
               <form onSubmit={handleSubmit} className="flex flex-col gap-3">
                 <input
                   type="text"
@@ -512,7 +517,7 @@ export default function App() {
                     value={teamOrSchool}
                     onChange={(e) => setTeamOrSchool(e.target.value)}
                     placeholder="Team or school (optional)"
-                    className="h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] placeholder:text-[#94A3B8] outline-none transition focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/20 sm:max-w-[320px]"
+                    className="h-10 w-full rounded-lg border border-[#233251] bg-[#0C1424] px-3 text-sm text-[#EAF0FA] placeholder:text-[#5D6B84] outline-none transition focus:border-[#38BDF8] focus:ring-2 focus:ring-[#38BDF8]/25 sm:max-w-[320px]"
                   />
                   <button
                     type="submit"
@@ -523,17 +528,11 @@ export default function App() {
                   </button>
                 </div>
               </form>
-              <p className="mt-3 flex items-center gap-1.5 text-xs text-[#64748B]">
-                <kbd className="rounded border border-[#E2E8F0] bg-[#F8FAFC] px-1.5 py-0.5 font-sans text-[10px] text-[#64748B]">
-                  ↵
-                </kbd>
-                Enter to search
-              </p>
             </div>
 
             {!report && !loading && recentSearches.length > 0 && (
               <div className="mt-6">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">
                   Recent Searches
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -546,11 +545,11 @@ export default function App() {
                         setTeamOrSchool('')
                         void generateReport(entry.player_name, '')
                       }}
-                      className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm shadow-sm transition hover:border-[#2563EB]/50 hover:bg-[#2563EB]/5"
+                      className="flex items-center gap-1.5 rounded-full border border-[#233251] bg-[#111A2E] px-3 py-1.5 text-sm transition hover:border-[#38BDF8]/50 hover:bg-[#17233E]"
                     >
-                      <span className="font-medium text-[#0F172A]">{entry.player_name}</span>
+                      <span className="font-medium text-[#EAF0FA]">{entry.player_name}</span>
                       {entry.position && (
-                        <span className="text-xs text-[#2563EB]">{entry.position}</span>
+                        <span className="text-xs text-[#7DD3FC]">{entry.position}</span>
                       )}
                     </button>
                   ))}
@@ -559,8 +558,8 @@ export default function App() {
             )}
 
             {loading && (
-              <div className="mt-6 flex flex-col items-center gap-5 rounded-xl border border-[#E2E8F0] bg-white p-8 shadow-sm">
-                <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#E2E8F0] border-t-[#1E3A5F]" />
+              <div className={`${CARD} mt-6 flex flex-col items-center gap-5 p-8`}>
+                <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#233251] border-t-[#38BDF8]" />
                 <ul className="w-full max-w-xs space-y-3">
                   {LOADING_STEPS.map((step, idx) => {
                     const isActive = idx === currentStep
@@ -570,15 +569,15 @@ export default function App() {
                         <span
                           className={
                             isActive
-                              ? 'h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[#2563EB]'
+                              ? 'h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[#38BDF8]'
                               : isDone
-                              ? 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#2563EB]/40'
-                              : 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#E2E8F0]'
+                              ? 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#38BDF8]/40'
+                              : 'h-2.5 w-2.5 shrink-0 rounded-full bg-[#233251]'
                           }
                         />
                         <span
                           className={`text-sm ${
-                            isActive ? 'font-medium text-[#0F172A]' : isDone ? 'text-[#64748B]' : 'text-[#94A3B8]'
+                            isActive ? 'font-medium text-[#EAF0FA]' : isDone ? 'text-[#94A3B8]' : 'text-[#5D6B84]'
                           }`}
                         >
                           {step.label}
@@ -587,14 +586,14 @@ export default function App() {
                     )
                   })}
                 </ul>
-                <p className="text-xs tabular-nums text-[#64748B]">
+                <p className="text-xs tabular-nums text-[#94A3B8]">
                   Scouting {playerName}… {elapsed}s
                 </p>
               </div>
             )}
 
             {error && (
-              <section className="mt-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm text-[#DC2626]">
+              <section className="mt-6 rounded-lg border border-[#F87171]/30 bg-[#F87171]/10 p-4 text-sm text-[#F87171]">
                 {error}
               </section>
             )}
@@ -610,7 +609,7 @@ export default function App() {
         {/* ── Compare mode ── */}
         {mode === 'compare' && (
           <>
-            <div className="rounded-xl border border-[#E2E8F0] bg-white p-6 shadow-sm">
+            <div className={`${CARD} p-6`}>
               <form onSubmit={handleCompare} className="flex flex-col gap-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <input
@@ -641,16 +640,16 @@ export default function App() {
             </div>
 
             {compareLoading && (
-              <div className="mt-6 flex flex-col items-center gap-4 rounded-xl border border-[#E2E8F0] bg-white p-8 shadow-sm">
-                <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#E2E8F0] border-t-[#1E3A5F]" />
-                <p className="text-sm text-[#64748B]">
+              <div className={`${CARD} mt-6 flex flex-col items-center gap-4 p-8`}>
+                <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#233251] border-t-[#38BDF8]" />
+                <p className="text-sm text-[#94A3B8]">
                   Comparing {p1Name} vs {p2Name}… this takes 30–60 seconds
                 </p>
               </div>
             )}
 
             {compareError && (
-              <section className="mt-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm text-[#DC2626]">
+              <section className="mt-6 rounded-lg border border-[#F87171]/30 bg-[#F87171]/10 p-4 text-sm text-[#F87171]">
                 {compareError}
               </section>
             )}
@@ -673,15 +672,15 @@ export default function App() {
       </main>
 
       {/* page footer */}
-      <footer className="border-t border-[#E2E8F0] bg-[#F1F5F9]">
-        <div className="mx-auto flex w-full max-w-[960px] flex-col items-center justify-between gap-3 px-4 py-6 text-sm text-[#64748B] sm:flex-row">
-          <p>nbascout.app — Free AI scouting for college and international prospects</p>
+      <footer className="relative z-10 border-t border-[#233251] bg-[#0B1120]">
+        <div className="mx-auto flex w-full max-w-[960px] flex-col items-center justify-between gap-3 px-4 py-6 text-sm text-[#94A3B8] sm:flex-row">
+          <p>nbascout.app — AI scouting for college and international prospects</p>
           <div className="flex gap-4">
             <a
               href="https://x.com"
               target="_blank"
               rel="noreferrer"
-              className="font-medium transition hover:text-[#2563EB]"
+              className="font-medium transition hover:text-[#7DD3FC]"
             >
               Twitter/X
             </a>
@@ -689,7 +688,7 @@ export default function App() {
               href="https://github.com"
               target="_blank"
               rel="noreferrer"
-              className="font-medium transition hover:text-[#2563EB]"
+              className="font-medium transition hover:text-[#7DD3FC]"
             >
               GitHub
             </a>
