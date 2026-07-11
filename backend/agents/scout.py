@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
+from db.cache import get_cached_report, set_cached_report
 from tools.bbref import get_college_stats, get_espn_college_stats, get_player_stats, get_wingspan
 from tools.euroleague import get_euroleague_stats
 from tools.fiba import get_fiba_profile
@@ -437,11 +438,20 @@ Rules:
         if not player_name:
             return self._normalize_report({}, "", set())
 
+        # First layer: in-memory cache (fastest for repeat requests this session).
         cache_key = player_name.lower()
         if cache_key in _report_cache:
             cached = dict(_report_cache[cache_key])
             cached["cached"] = True
             return cached
+
+        # Second layer: persistent Supabase cache (survives server restarts).
+        player_key = player_name.lower().strip().replace(" ", "_")
+        persisted = await get_cached_report(player_key)
+        if persisted:
+            persisted["cached"] = True
+            _report_cache[cache_key] = persisted  # warm the in-memory layer
+            return persisted
 
         self.tool_call_counts = {
             "web_search": 0,
@@ -516,4 +526,6 @@ Rules:
         if len(_report_cache) > 50:
             _report_cache.clear()
         _report_cache[cache_key] = report
+        # Persist to Supabase so the report survives restarts and saves future API calls.
+        await set_cached_report(player_key, report)
         return report

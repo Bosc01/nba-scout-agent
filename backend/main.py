@@ -7,6 +7,7 @@ from uuid import uuid4
 import time, sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 from agents.scout import ScoutAgent
+from db.cache import get_cache_stats
 
 app = FastAPI(title="NBA Scout Agent")
 app.add_middleware(
@@ -163,3 +164,13 @@ async def compare(req: CompareRequest):
 @app.get("/recent")
 async def recent():
     return recent_searches[:10]
+
+
+@app.get("/cache/stats")
+async def cache_stats():
+    """Persistent cache usage — a real cost-savings metric.
+
+    Returns the number of cached players, total cache hits, and how many
+    Claude API calls were avoided by serving from the cache.
+    """
+    return await get_cache_stats()
