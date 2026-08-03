@@ -247,6 +247,12 @@ Rules:
   - Too Early To Project for high school/freshman players.
   Base this on stats, physical profile, and any draft coverage found in web searches.
 - confidence must reflect actual data completeness, not a default
+- Write like a scout talks, not like a form being filled in. Plain, direct,
+  specific. Vary sentence shape — never open three list items the same way
+  ('Elite...', 'Solid...', 'Strong...'). Prefer a concrete observation
+  ('hit 37% from deep on nearly five attempts a game') over a generic label
+  ('good shooter'). No hedging boilerplate. Use commas or periods, never
+  em dashes.
 - Keep the report COMPACT — it renders in a UI and long output is slow:
   - strengths: 3-4 items, each under 15 words
   - weaknesses: 2-3 items, each under 15 words

@@ -3,9 +3,10 @@ import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-// ─── palette ────────────────────────────────────────────────────────────────
-// bg #F8FAFC · card white · primary #1E3A5F · accent #2563EB · text #0F172A
-// secondary #64748B · success #16A34A · warning #D97706 · danger #DC2626
+// ─── palette: Ocean Depths (theme-factory) ──────────────────────────────────
+// bg cream #f1faee · card white · primary navy #1a2332 · accent teal #2d8b8b
+// teal text-step #1f6f6f · seafoam #a8dadc · text #0F172A · secondary #64748B
+// status: success #16A34A · warning #D97706 · danger #DC2626 (text steps darker)
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -85,7 +86,7 @@ function ProgressSteps({ steps, elapsed, playerName }) {
       <ul className="space-y-2.5">
         {steps.length === 0 && (
           <li className="flex items-center gap-3">
-            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#2563EB]" />
+            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#2d8b8b]" />
             <span className="text-sm text-[#64748B]">Starting the scout agent…</span>
           </li>
         )}
@@ -96,7 +97,7 @@ function ProgressSteps({ steps, elapsed, playerName }) {
                 <path d="M3 8.5L6.5 12L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             ) : (
-              <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#2563EB]" />
+              <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#2d8b8b]" />
             )}
             <span className={`text-sm ${step.status === 'done' ? 'text-[#64748B]' : 'font-medium text-[#0F172A]'}`}>
               {step.label}
@@ -137,7 +138,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
               <button
                 type="button"
                 onClick={onShare}
-                className="rounded-md border border-[#E2E8F0] bg-white px-3 py-1 text-xs font-semibold text-[#64748B] transition hover:border-[#2563EB] hover:text-[#2563EB]"
+                className="rounded-md border border-[#E2E8F0] bg-white px-3 py-1 text-xs font-semibold text-[#64748B] transition hover:border-[#2d8b8b] hover:text-[#17595c]"
               >
                 Share
               </button>
@@ -149,7 +150,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
             </div>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-[#2563EB]">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-[#1f6f6f]">
           <span>{report.position ?? '--'}</span>
           <span className="text-[#CBD5E1]">·</span>
           <span>{report.team ?? '--'}</span>
@@ -197,7 +198,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {physical.map((item) => (
-          <div key={item.label} className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+          <div key={item.label} className="rounded-lg border border-[#E2E8F0] bg-[#a8dadc]/25 p-3">
             <p className="text-xs font-semibold text-[#64748B]">{item.label}</p>
             <p className="mt-1 text-lg font-semibold text-[#0F172A]">{item.value}</p>
           </div>
@@ -238,15 +239,15 @@ function ReportCard({ report, onShare, copied, responseTime }) {
         </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-[#E2E8F0] border-l-4 border-l-[#2563EB] bg-white p-4 shadow-sm">
-        <p className="text-xs font-bold uppercase tracking-wide text-[#2563EB]">NBA Comparison</p>
+      <div className="mt-6 rounded-lg border border-[#E2E8F0] border-l-4 border-l-[#2d8b8b] bg-white p-4 shadow-sm">
+        <p className="text-xs font-bold uppercase tracking-wide text-[#1f6f6f]">NBA Comparison</p>
         <p className="mt-1 text-2xl font-bold text-[#0F172A]">{report.nba_comp?.name ?? '--'}</p>
         <p className="mt-2 text-sm leading-relaxed text-[#64748B]">{report.nba_comp?.reasoning || '--'}</p>
       </div>
 
       {report.draft_projection !== null && report.draft_projection !== undefined && (
-        <div className="mt-4 rounded-lg border border-[#E2E8F0] border-l-4 border-l-[#1E3A5F] bg-white p-4 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wide text-[#1E3A5F]">Draft Projection</p>
+        <div className="mt-4 rounded-lg border border-[#E2E8F0] border-l-4 border-l-[#1a2332] bg-white p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wide text-[#1a2332]">Draft Projection</p>
           <p className="mt-1 text-2xl font-bold text-[#0F172A]">
             {formatDraftProjectionRound(report.draft_projection?.round)}
             {report.draft_projection?.year != null ? (
@@ -269,7 +270,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
                 href={src}
                 target="_blank"
                 rel="noreferrer"
-                className="text-[#2563EB] hover:underline"
+                className="text-[#1f6f6f] hover:underline"
               >
                 {sourceHost(src)}
               </a>
@@ -300,7 +301,7 @@ function HeadToHeadTable({ r1, r2 }) {
 
   return (
     <div className="mb-4 overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-sm">
-      <div className="grid grid-cols-3 border-b border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3 text-xs font-bold uppercase tracking-wide text-[#1E3A5F]">
+      <div className="grid grid-cols-3 border-b border-[#E2E8F0] bg-[#a8dadc]/25 px-4 py-3 text-xs font-bold uppercase tracking-wide text-[#1a2332]">
         <span>{r1?.player_name ?? 'Player 1'}</span>
         <span className="text-center text-[#64748B]">Stat</span>
         <span className="text-right">{r2?.player_name ?? 'Player 2'}</span>
@@ -310,8 +311,8 @@ function HeadToHeadTable({ r1, r2 }) {
         const p1Win = bothPresent && v1 - v2 > 0
         const p2Win = bothPresent && v1 - v2 < 0
 
-        const cls1 = p1Win ? 'text-[#2563EB]' : p2Win ? 'text-[#64748B]' : 'text-[#0F172A]'
-        const cls2 = p2Win ? 'text-[#2563EB]' : p1Win ? 'text-[#64748B]' : 'text-[#0F172A]'
+        const cls1 = p1Win ? 'text-[#1a2332]' : p2Win ? 'text-[#64748B]' : 'text-[#0F172A]'
+        const cls2 = p2Win ? 'text-[#1a2332]' : p1Win ? 'text-[#64748B]' : 'text-[#0F172A]'
 
         return (
           <div key={label} className="grid grid-cols-3 border-b border-[#E2E8F0] px-4 py-3 last:border-b-0">
@@ -568,21 +569,21 @@ export default function App() {
 
   const inputCls =
     'h-12 w-full rounded-lg border border-[#E2E8F0] bg-white px-4 text-[#0F172A] ' +
-    'placeholder:text-[#94A3B8] shadow-sm outline-none transition focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20'
+    'placeholder:text-[#94A3B8] shadow-sm outline-none transition focus:border-[#2d8b8b] focus:ring-2 focus:ring-[#2d8b8b]/20'
 
   const primaryBtnCls =
-    'h-12 rounded-lg bg-[#1E3A5F] px-6 font-semibold text-white shadow-sm transition ' +
-    'hover:bg-[#2563EB] disabled:cursor-not-allowed disabled:opacity-50'
+    'h-12 rounded-lg bg-[#1a2332] px-6 font-semibold text-white shadow-sm transition ' +
+    'hover:bg-[#17595c] disabled:cursor-not-allowed disabled:opacity-50'
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F8FAFC] font-[system-ui] text-[#0F172A]">
+    <div className="flex min-h-screen flex-col bg-[#f1faee] font-[system-ui] text-[#0F172A]">
 
       {/* header */}
       <header className="border-b border-[#E2E8F0] bg-white">
         <div className="mx-auto flex w-full max-w-[960px] items-center justify-between px-4 py-4">
           <div className="flex items-center gap-2">
-            <span className="text-xl font-bold tracking-tight text-[#1E3A5F]">NBAScout</span>
-            <span className="rounded bg-[#2563EB] px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-white">
+            <span className="text-xl font-bold tracking-tight text-[#1a2332]">NBAScout</span>
+            <span className="rounded bg-[#17595c] px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-white">
               AI
             </span>
           </div>
@@ -607,7 +608,7 @@ export default function App() {
                 onClick={() => setMode(tab.key)}
                 className={`border-b-2 pb-3 text-sm transition ${
                   mode === tab.key
-                    ? 'border-[#2563EB] font-semibold text-[#1E3A5F]'
+                    ? 'border-[#2d8b8b] font-semibold text-[#1a2332]'
                     : 'border-transparent font-medium text-[#64748B] hover:text-[#0F172A]'
                 }`}
               >
@@ -636,7 +637,7 @@ export default function App() {
                     value={teamOrSchool}
                     onChange={(e) => setTeamOrSchool(e.target.value)}
                     placeholder="Team or school (optional)"
-                    className="h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] placeholder:text-[#94A3B8] shadow-sm outline-none transition focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 sm:max-w-[320px]"
+                    className="h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] placeholder:text-[#94A3B8] shadow-sm outline-none transition focus:border-[#2d8b8b] focus:ring-2 focus:ring-[#2d8b8b]/20 sm:max-w-[320px]"
                   />
                   <button type="submit" disabled={loading || !playerName.trim()} className={primaryBtnCls}>
                     Generate Report
@@ -647,7 +648,7 @@ export default function App() {
 
             {!report && !loading && recentSearches.length > 0 && (
               <div className="mb-6">
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#64748B]">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#475569]">
                   Recent Searches
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -660,11 +661,11 @@ export default function App() {
                         setTeamOrSchool('')
                         void generateReport(entry.player_name, '')
                       }}
-                      className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm shadow-sm transition hover:border-[#2563EB]/50 hover:bg-[#F8FAFC]"
+                      className="flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm shadow-sm transition hover:border-[#2d8b8b]/60 hover:bg-[#f1faee]"
                     >
                       <span className="font-medium text-[#0F172A]">{entry.player_name}</span>
                       {entry.position && (
-                        <span className="text-xs font-semibold text-[#2563EB]">{entry.position}</span>
+                        <span className="text-xs font-semibold text-[#1f6f6f]">{entry.position}</span>
                       )}
                     </button>
                   ))}
@@ -675,7 +676,7 @@ export default function App() {
             {loading && <ProgressSteps steps={steps} elapsed={elapsed} playerName={playerName} />}
 
             {error && (
-              <section className="mb-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm font-medium text-[#DC2626]">
+              <section className="mb-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm font-medium text-[#B91C1C]">
                 {error}
               </section>
             )}
@@ -722,7 +723,7 @@ export default function App() {
             {compareLoading && (
               <section className="mb-6 rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#2563EB]" />
+                  <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#2d8b8b]" />
                   <p className="text-sm text-[#64748B]">
                     Comparing <span className="font-semibold text-[#0F172A]">{p1Name}</span> vs{' '}
                     <span className="font-semibold text-[#0F172A]">{p2Name}</span>… usually under 30 seconds
@@ -732,7 +733,7 @@ export default function App() {
             )}
 
             {compareError && (
-              <section className="mb-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm font-medium text-[#DC2626]">
+              <section className="mb-6 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/5 p-4 text-sm font-medium text-[#B91C1C]">
                 {compareError}
               </section>
             )}
@@ -740,7 +741,7 @@ export default function App() {
             {comparison && !compareLoading && (
               <>
                 <HeadToHeadTable r1={comparison.player_one} r2={comparison.player_two} />
-                <p className="mb-6 text-center text-xs text-[#64748B]">
+                <p className="mb-6 text-center text-xs text-[#475569]">
                   Comparison generated in {comparison.response_time_seconds ?? '--'}s
                 </p>
                 <div className="grid gap-6 lg:grid-cols-2">
