@@ -10,8 +10,9 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function getConfidenceStyle(confidence) {
-  if (confidence >= 0.7) return 'bg-[#16A34A]/10 text-[#16A34A] border-[#16A34A]/30'
-  if (confidence >= 0.4) return 'bg-[#D97706]/10 text-[#D97706] border-[#D97706]/30'
+  // Text steps are darker than the fill hues so 12px badge text clears WCAG AA (4.5:1).
+  if (confidence >= 0.7) return 'bg-[#16A34A]/10 text-[#15803D] border-[#16A34A]/30'
+  if (confidence >= 0.4) return 'bg-[#D97706]/10 text-[#B45309] border-[#D97706]/30'
   return 'bg-[#64748B]/10 text-[#64748B] border-[#64748B]/30'
 }
 
@@ -23,8 +24,19 @@ function getProfileLabel(confidence) {
 
 function formatStat(value, isPercent = false) {
   if (value === null || value === undefined || value === '') return '--'
-  if (isPercent && typeof value === 'number') return value.toFixed(3)
+  if (isPercent && typeof value === 'number') {
+    // Reports store shooting percentages as 0-1 decimals; render as 40.2%.
+    // Tolerate legacy cached reports that stored 40.2 directly.
+    const pct = value <= 1 ? value * 100 : value
+    return `${pct.toFixed(1)}%`
+  }
   return String(value)
+}
+
+function confidenceMeterColors(confidence) {
+  if (confidence >= 0.7) return { fill: '#16A34A', track: 'rgba(22, 163, 74, 0.15)' }
+  if (confidence >= 0.4) return { fill: '#D97706', track: 'rgba(217, 119, 6, 0.15)' }
+  return { fill: '#64748B', track: 'rgba(100, 116, 139, 0.15)' }
 }
 
 function formatDraftProjectionRound(round) {
@@ -100,12 +112,12 @@ function ProgressSteps({ steps, elapsed, playerName }) {
 
 function ReportCard({ report, onShare, copied, responseTime }) {
   const stats = [
-    { label: 'PTS', value: formatStat(report?.stats?.pts) },
-    { label: 'REB', value: formatStat(report?.stats?.reb) },
-    { label: 'AST', value: formatStat(report?.stats?.ast) },
-    { label: 'FG%', value: formatStat(report?.stats?.fg_pct, true) },
-    { label: '3PT%', value: formatStat(report?.stats?.three_pct, true) },
-    { label: 'FT%', value: formatStat(report?.stats?.ft_pct, true) },
+    { label: 'Points', value: formatStat(report?.stats?.pts) },
+    { label: 'Rebounds', value: formatStat(report?.stats?.reb) },
+    { label: 'Assists', value: formatStat(report?.stats?.ast) },
+    { label: 'Field goal %', value: formatStat(report?.stats?.fg_pct, true) },
+    { label: 'Three point %', value: formatStat(report?.stats?.three_pct, true) },
+    { label: 'Free throw %', value: formatStat(report?.stats?.ft_pct, true) },
   ]
   const physical = [
     { label: 'Height', value: report?.physical?.height ?? '--' },
@@ -130,7 +142,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
                 Share
               </button>
               {copied && (
-                <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-[#E2E8F0] bg-white px-2 py-1 text-[10px] font-semibold text-[#16A34A] shadow-sm">
+                <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-[#E2E8F0] bg-white px-2 py-1 text-[10px] font-semibold text-[#15803D] shadow-sm">
                   Copied!
                 </span>
               )}
@@ -150,6 +162,25 @@ function ReportCard({ report, onShare, copied, responseTime }) {
           </span>
           <span className="text-xs text-[#64748B]">confidence {confidence.toFixed(2)}</span>
         </div>
+        <div className="mt-2 max-w-[240px]">
+          <div
+            className="h-1.5 w-full overflow-hidden rounded-full"
+            style={{ backgroundColor: confidenceMeterColors(confidence).track }}
+            role="meter"
+            aria-valuemin={0}
+            aria-valuemax={1}
+            aria-valuenow={confidence}
+            aria-label="Report confidence"
+          >
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${Math.round(confidence * 100)}%`,
+                backgroundColor: confidenceMeterColors(confidence).fill,
+              }}
+            />
+          </div>
+        </div>
         {report.confidence_notes ? (
           <p className="mt-2 text-xs leading-relaxed text-[#64748B]">{report.confidence_notes}</p>
         ) : null}
@@ -158,8 +189,8 @@ function ReportCard({ report, onShare, copied, responseTime }) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {stats.map((stat) => (
           <div key={stat.label} className="rounded-lg border border-[#E2E8F0] bg-white p-3 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#64748B]">{stat.label}</p>
-            <p className="mt-1 text-2xl font-bold tabular-nums text-[#0F172A]">{stat.value}</p>
+            <p className="text-xs font-semibold text-[#64748B]">{stat.label}</p>
+            <p className="mt-1 text-2xl font-bold text-[#0F172A]">{stat.value}</p>
           </div>
         ))}
       </div>
@@ -167,7 +198,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {physical.map((item) => (
           <div key={item.label} className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#64748B]">{item.label}</p>
+            <p className="text-xs font-semibold text-[#64748B]">{item.label}</p>
             <p className="mt-1 text-lg font-semibold text-[#0F172A]">{item.value}</p>
           </div>
         ))}
@@ -175,7 +206,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border border-[#E2E8F0] border-l-4 border-l-[#16A34A] bg-white p-4 shadow-sm">
-          <h3 className="mb-3 text-sm font-bold text-[#16A34A]">Strengths</h3>
+          <h3 className="mb-3 text-sm font-bold text-[#15803D]">Strengths</h3>
           <ul className="space-y-2 text-sm leading-relaxed text-[#0F172A]">
             {(report.strengths ?? []).length > 0 ? (
               report.strengths.map((item, idx) => (
@@ -284,9 +315,15 @@ function HeadToHeadTable({ r1, r2 }) {
 
         return (
           <div key={label} className="grid grid-cols-3 border-b border-[#E2E8F0] px-4 py-3 last:border-b-0">
-            <span className={`text-sm font-semibold tabular-nums ${cls1}`}>{fmt(v1)}</span>
+            <span className={`text-sm font-semibold tabular-nums ${cls1}`}>
+              {p1Win && <span aria-label="higher value" className="mr-1 text-[10px]">▲</span>}
+              {fmt(v1)}
+            </span>
             <span className="text-center text-xs font-medium uppercase tracking-wide text-[#64748B]">{label}</span>
-            <span className={`text-right text-sm font-semibold tabular-nums ${cls2}`}>{fmt(v2)}</span>
+            <span className={`text-right text-sm font-semibold tabular-nums ${cls2}`}>
+              {p2Win && <span aria-label="higher value" className="mr-1 text-[10px]">▲</span>}
+              {fmt(v2)}
+            </span>
           </div>
         )
       })}
@@ -688,7 +725,7 @@ export default function App() {
                   <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#E2E8F0] border-t-[#2563EB]" />
                   <p className="text-sm text-[#64748B]">
                     Comparing <span className="font-semibold text-[#0F172A]">{p1Name}</span> vs{' '}
-                    <span className="font-semibold text-[#0F172A]">{p2Name}</span>… this takes 30–60 seconds
+                    <span className="font-semibold text-[#0F172A]">{p2Name}</span>… usually under 30 seconds
                   </p>
                 </div>
               </section>

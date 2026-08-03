@@ -638,7 +638,7 @@ Rules:
             )
             await self._emit(
                 progress_cb,
-                {"type": "phase", "label": "Validation failed — retrying with disambiguation"},
+                {"type": "phase", "label": "Validation failed, retrying with disambiguation"},
             )
             report = await self._generate_once(
                 player_name, progress_cb=progress_cb, validation_issues=issues
