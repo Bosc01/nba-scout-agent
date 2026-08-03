@@ -320,6 +320,13 @@ Rules:
                 return {}
 
     @staticmethod
+    def _no_em_dash(text: Any) -> Any:
+        """Enforce the house style rule deterministically: prompt adherence is not guaranteed."""
+        if not isinstance(text, str):
+            return text
+        return text.replace(" — ", ", ").replace("—", ", ")
+
+    @staticmethod
     def _clamp_confidence(value: Any) -> float:
         try:
             numeric = float(value)
@@ -382,8 +389,12 @@ Rules:
             draft_notes = notes_val if isinstance(notes_val, str) else str(notes_val or "")
 
             report["draft_projection"] = {"year": draft_year, "round": draft_round, "notes": draft_notes}
-        report["strengths"] = [str(item) for item in raw.get("strengths", []) if isinstance(item, str)]
-        report["weaknesses"] = [str(item) for item in raw.get("weaknesses", []) if isinstance(item, str)]
+        report["strengths"] = [self._no_em_dash(str(item)) for item in raw.get("strengths", []) if isinstance(item, str)]
+        report["weaknesses"] = [self._no_em_dash(str(item)) for item in raw.get("weaknesses", []) if isinstance(item, str)]
+        report["nba_comp"]["reasoning"] = self._no_em_dash(report["nba_comp"].get("reasoning"))
+        report["confidence_notes"] = self._no_em_dash(report.get("confidence_notes"))
+        if isinstance(report.get("draft_projection"), dict):
+            report["draft_projection"]["notes"] = self._no_em_dash(report["draft_projection"].get("notes"))
         report["confidence"] = self._clamp_confidence(raw.get("confidence"))
 
         report_sources = [str(src) for src in raw.get("sources", []) if isinstance(src, str)]
