@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import difflib
 import json
 import os
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -19,9 +22,30 @@ load_dotenv(override=True)
 
 _report_cache: dict[str, Any] = {}
 
+# Validation failures across all reports this process has generated.
+# Exposed via /metrics so wrong-player incidents are observable.
+validation_log: list[dict[str, Any]] = []
+
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
+_PLAUSIBLE_STAT_RANGES: dict[str, tuple[float, float]] = {
+    "pts": (0, 50),
+    "reb": (0, 25),
+    "ast": (0, 20),
+    "fg_pct": (0, 1),
+    "three_pct": (0, 1),
+    "ft_pct": (0, 1),
+    "games": (0, 120),
+    "minutes": (0, 48),
+}
+
+_PLACEHOLDER_TEAM_VALUES = {"unknown", "n/a", "none", "null", "tbd", "--"}
+
 
 class ScoutAgent:
     MODEL = "claude-sonnet-4-6"
+    MAX_TOOL_CALLS = 4
+    NAME_MATCH_THRESHOLD = 0.8
 
     def __init__(self) -> None:
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -128,60 +152,35 @@ class ScoutAgent:
 
     @staticmethod
     def _system_prompt() -> str:
-        return """SPEED MODE: Maximum 4 tool calls. Call get_player_stats
-first, then get_college_stats, then maximum 2 web searches.
-Stop immediately after 4 calls and generate report with
-whatever data you have. Do not exceed 4 tool calls under
-any circumstances.
+        return """SPEED MODE: You have a HARD budget of 4 tool calls total.
+Issue ALL FOUR tool calls AT ONCE in your FIRST response — do not
+wait for any result before issuing the others; they execute in
+parallel. After the results return, generate the final JSON
+immediately. No second round of tool calls under any circumstances.
 
-You have a tool call budget of 5. Use it wisely.
+Default batch for college/NBA players:
+1. get_player_stats
+2. get_college_stats
+3. web_search: '{player_name} height weight position team 2026 NBA draft'
+4. web_search: '{player_name} scouting report strengths weaknesses stats 2025-26'
+
+For international pros, swap get_college_stats for
+get_euroleague_stats or get_fiba_profile.
+
 You are a conservative NBA scout generating reports grounded ONLY
 in tool outputs. Never invent numbers or stats.
 If the player name includes a team or school context (e.g.
 'Marcus Johnson Duke'), use that context to disambiguate between
 players with the same name. Search specifically for that
-player at that institution.
+player at that institution and include it in your search queries.
 
-Research order — follow this exactly:
-1. Call get_player_stats (NBA/pro Basketball Reference)
-2. Call web_search: '{player_name} height weight position team 2026 NBA draft'
-3. Call get_college_stats (Sports Reference CBB)
-4. If get_college_stats returns null shooting percentages (fg_pct, three_pct, ft_pct),
-   call get_espn_college_stats as a fallback for those percentages.
-5. Call web_search: '{player_name} scouting report strengths weaknesses'
-6. Call web_search: '{player_name} mock draft projection'
+CRITICAL: If web search snippets contain physical measurements
+(including wingspan), shooting percentages, strengths, weaknesses,
+or draft projections — extract and use that information directly.
+Extract numbers like '39.7% on two-point field goals' or '22.7%
+from three' from article text. Do not return null fields when the
+information exists in search results.
 
-Do not wait for scraper tools to succeed before searching
-the web. Run web searches in parallel with scraper results.
-
-CRITICAL: If web search snippets contain physical
-measurements, strengths, weaknesses, or draft projections
-— extract and use that information directly. Do not return
-null fields when the information exists in search results.
-
-Call get_wingspan for any player where physical.wingspan is
-null after the other tools have run. Pass the player's team
-as the second argument to improve search accuracy.
-
-When shooting percentages are not found in scrapers,
-search for them explicitly:
-web_search: '{player_name} field goal percentage three point percentage stats 2025-26 season'
-
-Also check search snippets for any mention of shooting
-percentages — they are often mentioned in scouting articles.
-Extract numbers like '39.7% on two-point field goals' or
-'22.7% from three' from article text.
-
-For current college players, also search:
-'{player_name} college basketball stats 2025-26'
-'{player_name} sports reference cbb'
-
-Sports Reference CBB URL pattern for current players:
-https://www.sports-reference.com/cbb/players/{firstname}-{lastname}-1.html
-
-Try multiple URL variations if first attempt fails.
-For 2025-26 freshmen, stats may be under the current season
-table not career totals — check both.
 After retrieving stats from any tool, verify the player matches
 by checking:
 1. Does the team/school match what was searched?
@@ -247,7 +246,14 @@ Rules:
   - Undrafted
   - Too Early To Project for high school/freshman players.
   Base this on stats, physical profile, and any draft coverage found in web searches.
-- confidence must reflect actual data completeness, not a default"""
+- confidence must reflect actual data completeness, not a default
+- Keep the report COMPACT — it renders in a UI and long output is slow:
+  - strengths: 3-4 items, each under 15 words
+  - weaknesses: 2-3 items, each under 15 words
+  - nba_comp.reasoning: under 35 words
+  - draft_projection.notes and confidence_notes: under 20 words each
+  - sources: list AT MOST the 3 most important URLs — every tool-result
+    URL is merged into the report automatically, so do not repeat them"""
 
     @staticmethod
     def _normalize_source_url(url: str) -> str:
@@ -433,46 +439,71 @@ Rules:
 
         return {"error": f"Unknown tool: {tool_name}"}
 
-    async def generate_report(self, player_name: str) -> dict[str, Any]:
-        player_name = player_name.strip()
-        if not player_name:
-            return self._normalize_report({}, "", set())
+    @staticmethod
+    async def _emit(progress_cb: ProgressCallback | None, event: dict[str, Any]) -> None:
+        if progress_cb is None:
+            return
+        try:
+            await progress_cb(event)
+        except Exception:
+            pass
 
-        # First layer: in-memory cache (fastest for repeat requests this session).
-        cache_key = player_name.lower()
-        if cache_key in _report_cache:
-            cached = dict(_report_cache[cache_key])
-            cached["cached"] = True
-            return cached
+    def _validate_report(self, report: dict[str, Any], searched_name: str) -> list[str]:
+        issues: list[str] = []
 
-        # Second layer: persistent Supabase cache (survives server restarts).
-        player_key = player_name.lower().strip().replace(" ", "_")
-        persisted = await get_cached_report(player_key)
-        if persisted:
-            persisted["cached"] = True
-            _report_cache[cache_key] = persisted  # warm the in-memory layer
-            return persisted
+        reported = str(report.get("player_name") or "").strip()
+        searched = searched_name.strip()
+        if reported and searched:
+            ratio = difflib.SequenceMatcher(None, reported.lower(), searched.lower()).ratio()
+            substring_match = reported.lower() in searched.lower() or searched.lower() in reported.lower()
+            if ratio < self.NAME_MATCH_THRESHOLD and not substring_match:
+                issues.append(
+                    f"player_name mismatch: searched '{searched}' but report is for "
+                    f"'{reported}' (similarity {ratio:.2f})"
+                )
 
-        self.tool_call_counts = {
-            "web_search": 0,
-            "get_player_stats": 0,
-            "get_college_stats": 0,
-            "get_espn_college_stats": 0,
-            "get_wingspan": 0,
-            "get_euroleague_stats": 0,
-            "get_fiba_profile": 0,
-        }
+        team = report.get("team")
+        if team is not None:
+            team_str = str(team).strip()
+            if (
+                team_str.lower() in _PLACEHOLDER_TEAM_VALUES
+                or len(team_str) < 3
+                or not any(ch.isalpha() for ch in team_str)
+            ):
+                issues.append(f"implausible team value: '{team}'")
+
+        stats = report.get("stats") or {}
+        for field, (low, high) in _PLAUSIBLE_STAT_RANGES.items():
+            value = stats.get(field)
+            if isinstance(value, (int, float)) and not low <= value <= high:
+                issues.append(f"stat out of plausible range: {field}={value} (expected {low}-{high})")
+
+        return issues
+
+    async def _generate_once(
+        self,
+        player_name: str,
+        progress_cb: ProgressCallback | None = None,
+        validation_issues: list[str] | None = None,
+    ) -> dict[str, Any]:
+        self.tool_call_counts = dict.fromkeys(self.tool_call_counts, 0)
         self.tool_calls = []
 
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "user",
-                "content": (
-                    f"Create a complete scouting report for player: {player_name}.\n"
-                    "Research thoroughly with tools before concluding."
-                ),
-            }
-        ]
+        prompt = (
+            f"Create a complete scouting report for player: {player_name}.\n"
+            "Research thoroughly with tools before concluding."
+        )
+        if validation_issues:
+            prompt += (
+                "\n\nIMPORTANT: a previous attempt at this report failed validation:\n- "
+                + "\n- ".join(validation_issues)
+                + f"\nBe extremely careful to research the correct player named '{player_name}'. "
+                "Verify that every team, stat, and bio field belongs to this exact player. "
+                "If you cannot confirm a field belongs to this player, set it to null. "
+                "Wrong data is worse than missing data."
+            )
+
+        messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
         seen_sources: set[str] = set()
 
         final_text = ""
@@ -493,14 +524,37 @@ Rules:
             tool_uses = [block for block in response.content if getattr(block, "type", None) == "tool_use"]
             if not tool_uses:
                 final_text = self._extract_text(response.content)
+                await self._emit(progress_cb, {"type": "phase", "label": "Writing report"})
                 break
 
-            tool_results_content: list[dict[str, Any]] = []
-            for tool_use in tool_uses:
-                tool_name = getattr(tool_use, "name", "")
-                tool_input = getattr(tool_use, "input", {}) or {}
-                result = await self._run_tool(tool_name=tool_name, tool_input=tool_input)
+            # Enforce the hard tool budget in code, not just in the prompt.
+            remaining = self.MAX_TOOL_CALLS - sum(self.tool_call_counts.values())
+            to_run = tool_uses[: max(0, remaining)]
 
+            for tool_use in to_run:
+                tool_input = getattr(tool_use, "input", {}) or {}
+                await self._emit(
+                    progress_cb,
+                    {
+                        "type": "tool",
+                        "tool": getattr(tool_use, "name", ""),
+                        "query": tool_input.get("query"),
+                    },
+                )
+
+            # Tools in the same assistant turn are independent — run them concurrently.
+            results = await asyncio.gather(
+                *(
+                    self._run_tool(
+                        tool_name=getattr(tool_use, "name", ""),
+                        tool_input=getattr(tool_use, "input", {}) or {},
+                    )
+                    for tool_use in to_run
+                )
+            )
+
+            tool_results_content: list[dict[str, Any]] = []
+            for tool_use, result in zip(to_run, results):
                 if isinstance(result, list):
                     for item in result:
                         url = item.get("url") if isinstance(item, dict) else None
@@ -519,10 +573,87 @@ Rules:
                     }
                 )
 
+            for tool_use in tool_uses[len(to_run):]:
+                tool_results_content.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": getattr(tool_use, "id", ""),
+                        "content": json.dumps({"error": "Tool call budget exhausted."}, ensure_ascii=True),
+                    }
+                )
+
             messages.append({"role": "user", "content": tool_results_content})
 
+            if sum(self.tool_call_counts.values()) >= self.MAX_TOOL_CALLS:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Tool call budget exhausted. Generate the final JSON report now "
+                            "using only the data already gathered. Respond with ONLY the JSON object."
+                        ),
+                    }
+                )
+
         raw_report = self._safe_json_parse(final_text)
-        report = self._normalize_report(raw_report, player_name, seen_sources)
+        return self._normalize_report(raw_report, player_name, seen_sources)
+
+    async def generate_report(
+        self,
+        player_name: str,
+        progress_cb: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        player_name = player_name.strip()
+        if not player_name:
+            return self._normalize_report({}, "", set())
+
+        await self._emit(progress_cb, {"type": "phase", "label": "Checking report cache"})
+
+        # First layer: in-memory cache (fastest for repeat requests this session).
+        cache_key = player_name.lower()
+        if cache_key in _report_cache:
+            cached = dict(_report_cache[cache_key])
+            cached["cached"] = True
+            return cached
+
+        # Second layer: persistent Supabase cache (survives server restarts).
+        player_key = player_name.lower().strip().replace(" ", "_")
+        persisted = await get_cached_report(player_key)
+        if persisted:
+            persisted["cached"] = True
+            _report_cache[cache_key] = persisted  # warm the in-memory layer
+            return persisted
+
+        report = await self._generate_once(player_name, progress_cb=progress_cb)
+
+        issues = self._validate_report(report, player_name)
+        if issues:
+            validation_log.append(
+                {
+                    "player_name": player_name,
+                    "issues": issues,
+                    "stage": "initial",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+            await self._emit(
+                progress_cb,
+                {"type": "phase", "label": "Validation failed — retrying with disambiguation"},
+            )
+            report = await self._generate_once(
+                player_name, progress_cb=progress_cb, validation_issues=issues
+            )
+            retry_issues = self._validate_report(report, player_name)
+            if retry_issues:
+                validation_log.append(
+                    {
+                        "player_name": player_name,
+                        "issues": retry_issues,
+                        "stage": "after_retry",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+
         if len(_report_cache) > 50:
             _report_cache.clear()
         _report_cache[cache_key] = report

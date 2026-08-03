@@ -1,12 +1,14 @@
 import asyncio
+import json
 from datetime import UTC, datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from uuid import uuid4
 import time, sys, os
 sys.path.insert(0, os.path.dirname(__file__))
-from agents.scout import ScoutAgent
+from agents.scout import ScoutAgent, validation_log
 from db.cache import get_cache_stats
 
 app = FastAPI(title="NBA Scout Agent")
@@ -16,6 +18,78 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Analytics (PostHog) ──────────────────────────────────────────────────────
+# No-op when POSTHOG_API_KEY is not set, so local dev works without a key.
+posthog_client = None
+if os.getenv("POSTHOG_API_KEY"):
+    try:
+        from posthog import Posthog
+
+        posthog_client = Posthog(
+            project_api_key=os.getenv("POSTHOG_API_KEY"),
+            host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com"),
+        )
+    except Exception:
+        posthog_client = None
+
+
+def _field_completeness(report: dict) -> float:
+    """Fraction of key report fields that came back non-null."""
+    physical = report.get("physical") or {}
+    stats = report.get("stats") or {}
+    nba_comp = report.get("nba_comp") or {}
+    values = [
+        report.get("player_name"),
+        report.get("position"),
+        report.get("age"),
+        report.get("team"),
+        physical.get("height"),
+        physical.get("weight"),
+        physical.get("wingspan"),
+        stats.get("pts"),
+        stats.get("reb"),
+        stats.get("ast"),
+        stats.get("fg_pct"),
+        stats.get("three_pct"),
+        stats.get("ft_pct"),
+        stats.get("games"),
+        stats.get("minutes"),
+        nba_comp.get("name"),
+        nba_comp.get("reasoning"),
+        report.get("confidence"),
+        report.get("confidence_notes"),
+        report.get("sources"),
+    ]
+    non_null = sum(1 for v in values if v not in (None, "", [], {}))
+    return round(non_null / len(values), 3)
+
+
+def _track_report(client_ip: str, player_name: str, elapsed: float, report: dict, endpoint: str) -> None:
+    if posthog_client is None:
+        return
+    try:
+        posthog_client.capture(
+            distinct_id=client_ip or "anonymous",
+            event="report_generated",
+            properties={
+                "player_name": player_name,
+                "response_time": elapsed,
+                "confidence": report.get("confidence"),
+                "field_completeness": _field_completeness(report),
+                "endpoint": endpoint,
+                "cached": bool(report.get("cached")),
+            },
+        )
+    except Exception:
+        pass
+
+
+# ── Uptime / request metrics ─────────────────────────────────────────────────
+SERVER_STARTED_AT = datetime.now(UTC)
+# Counts scouting work only (scout/compare); health checks and input errors excluded.
+request_metrics = {"total": 0, "success": 0, "failed": 0}
+
 
 class ScoutRequest(BaseModel):
     player_name: str
@@ -76,20 +150,41 @@ async def health():
 async def ping():
     return {"ok": True}
 
-async def _run_scout_job(job_id: str, player_name: str) -> None:
+
+@app.get("/metrics")
+async def metrics():
+    total = request_metrics["total"]
+    uptime_pct = round(request_metrics["success"] / total * 100, 2) if total else 100.0
+    now = datetime.now(UTC)
+    return {
+        "uptime_start": SERVER_STARTED_AT.isoformat(),
+        "uptime_seconds": round((now - SERVER_STARTED_AT).total_seconds(), 1),
+        "total_requests": total,
+        "successful_requests": request_metrics["success"],
+        "failed_requests": request_metrics["failed"],
+        "uptime_pct": uptime_pct,
+        "validation_failures": len(validation_log),
+    }
+
+
+async def _run_scout_job(job_id: str, player_name: str, client_ip: str) -> None:
     """Run the scout agent in the background and store the result in `jobs`."""
     start = time.time()
     try:
         agent = ScoutAgent()
         report = await agent.generate_report(player_name)
-        report["response_time_seconds"] = round(time.time() - start, 2)
+        elapsed = round(time.time() - start, 2)
+        report["response_time_seconds"] = elapsed
         _record_search(
             report.get("player_name") or player_name,
             report.get("position"),
             report.get("team"),
         )
+        request_metrics["success"] += 1
+        _track_report(client_ip, player_name, elapsed, report, "/scout")
         jobs[job_id] = {"status": "complete", "report": report}
     except Exception as e:
+        request_metrics["failed"] += 1
         jobs[job_id] = {"status": "error", "detail": str(e)}
 
 
@@ -104,6 +199,7 @@ async def scout(req: ScoutRequest, request: Request):
             detail="Rate limit exceeded. Please try again later.",
         )
 
+    request_metrics["total"] += 1
     job_id = str(uuid4())
     jobs[job_id] = {"status": "processing"}
 
@@ -114,11 +210,67 @@ async def scout(req: ScoutRequest, request: Request):
 
     # Run the agent concurrently and return immediately so the request itself
     # never blocks past Render's 30s limit — the client polls /scout/{job_id}.
-    task = asyncio.create_task(_run_scout_job(job_id, req.player_name))
+    task = asyncio.create_task(_run_scout_job(job_id, req.player_name, client_ip))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
     return {"job_id": job_id, "status": "processing"}
+
+
+@app.post("/scout/stream")
+async def scout_stream(req: ScoutRequest, request: Request):
+    """Stream agent progress as Server-Sent Events, ending with the full report."""
+    if not req.player_name.strip():
+        raise HTTPException(status_code=400, detail="Player name required")
+    client_ip = request.client.host if request.client else "unknown"
+    if _is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Please try again later.",
+        )
+    request_metrics["total"] += 1
+    start = time.time()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def progress_cb(event: dict) -> None:
+        await queue.put(event)
+
+    async def run() -> None:
+        try:
+            agent = ScoutAgent()
+            report = await agent.generate_report(req.player_name, progress_cb=progress_cb)
+            elapsed = round(time.time() - start, 2)
+            report["response_time_seconds"] = elapsed
+            _record_search(
+                report.get("player_name") or req.player_name,
+                report.get("position"),
+                report.get("team"),
+            )
+            request_metrics["success"] += 1
+            _track_report(client_ip, req.player_name, elapsed, report, "/scout/stream")
+            await queue.put({"type": "report", "report": report})
+        except Exception as e:
+            request_metrics["failed"] += 1
+            await queue.put({"type": "error", "detail": str(e)})
+        finally:
+            await queue.put(None)
+
+    async def event_stream():
+        task = asyncio.create_task(run())
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/scout/{job_id}")
@@ -130,9 +282,11 @@ async def scout_status(job_id: str):
 
 
 @app.post("/compare")
-async def compare(req: CompareRequest):
+async def compare(req: CompareRequest, request: Request):
     if not req.player_one.strip() or not req.player_two.strip():
         raise HTTPException(status_code=400, detail="Both player names required")
+    client_ip = request.client.host if request.client else "unknown"
+    request_metrics["total"] += 1
     start = time.time()
     try:
         agent_one = ScoutAgent()
@@ -152,12 +306,16 @@ async def compare(req: CompareRequest):
             report_two.get("position"),
             report_two.get("team"),
         )
+        request_metrics["success"] += 1
+        _track_report(client_ip, req.player_one, elapsed, report_one, "/compare")
+        _track_report(client_ip, req.player_two, elapsed, report_two, "/compare")
         return {
             "player_one": report_one,
             "player_two": report_two,
             "response_time_seconds": elapsed,
         }
     except Exception as e:
+        request_metrics["failed"] += 1
         raise HTTPException(status_code=500, detail=str(e))
 
 

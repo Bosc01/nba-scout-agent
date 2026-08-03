@@ -7,3 +7,4 @@ python-dotenv==1.0.0
 pydantic==2.7.0
 ddgs==9.0.0
 supabase==2.3.0
+posthog==7.36.0
