@@ -143,6 +143,40 @@ function ReportCard({ report, onShare, copied, responseTime }) {
     { label: 'Weight', value: report?.physical?.weight ?? '--' },
     { label: 'Wingspan', value: report?.physical?.wingspan ?? '--' },
   ]
+  const advanced = report?.advanced || {}
+  const advancedRows = [
+    {
+      key: 'ts_pct',
+      label: 'TS% · True shooting',
+      tip: 'True Shooting: scoring efficiency that accounts for threes and free throws',
+      value: formatStat(advanced.ts_pct, true),
+      present: advanced.ts_pct != null,
+    },
+    {
+      key: 'usg_pct',
+      label: 'USG% · Usage rate',
+      tip: 'Usage Rate: share of team plays used while on the floor',
+      value: formatStat(advanced.usg_pct, true),
+      present: advanced.usg_pct != null,
+    },
+    {
+      key: 'bpm',
+      label: 'BPM · Box plus/minus',
+      tip: 'Box Plus/Minus: estimated impact per 100 possessions versus an average player',
+      value:
+        typeof advanced.bpm === 'number'
+          ? `${advanced.bpm > 0 ? '+' : ''}${advanced.bpm.toFixed(1)}`
+          : '--',
+      present: advanced.bpm != null,
+    },
+    {
+      key: 'per',
+      label: 'PER · Efficiency rating',
+      tip: 'Player Efficiency Rating: per-minute production, league average is 15',
+      value: typeof advanced.per === 'number' ? advanced.per.toFixed(1) : '--',
+      present: advanced.per != null,
+    },
+  ].filter((row) => row.present)
   const confidence = typeof report?.confidence === 'number' ? report.confidence : 0
   const meter = confidenceMeterColors(confidence)
   const sources = Array.isArray(report?.sources) ? report.sources.slice(0, 5) : []
@@ -206,7 +240,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
         </p>
       ) : null}
 
-      <div className="mt-8 grid gap-x-12 sm:grid-cols-2">
+      <div className="animate-reveal mt-8 grid gap-x-12 sm:grid-cols-2" style={{ animationDelay: '200ms' }}>
         {stats.map((stat) => (
           <div
             key={stat.label}
@@ -220,7 +254,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
         ))}
       </div>
 
-      <div className="grid gap-x-12 sm:grid-cols-3">
+      <div className="animate-reveal grid gap-x-12 sm:grid-cols-3" style={{ animationDelay: '200ms' }}>
         {physical.map((item) => (
           <div
             key={item.label}
@@ -232,7 +266,29 @@ function ReportCard({ report, onShare, copied, responseTime }) {
         ))}
       </div>
 
-      <div className="mt-10 grid gap-x-12 gap-y-8 md:grid-cols-2">
+      {advancedRows.length > 0 && (
+        <section className="animate-reveal mt-8" style={{ animationDelay: '200ms' }}>
+          <div className="border-t-2 border-[#14181d] pt-3">
+            <MicroLabel className="text-[#7a828c]">Advanced metrics</MicroLabel>
+          </div>
+          <div className="grid gap-x-12 sm:grid-cols-2">
+            {advancedRows.map((row) => (
+              <div
+                key={row.key}
+                className="flex items-baseline justify-between border-t border-[#DBDDD6] py-3 first:border-t-0 sm:[&:nth-child(2)]:border-t-0"
+                title={row.tip}
+              >
+                <MicroLabel className="cursor-help text-[#7a828c]">{row.label}</MicroLabel>
+                <span className="font-mono text-2xl font-semibold tabular-nums text-[#14181d]">
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="animate-reveal mt-10 grid gap-x-12 gap-y-8 md:grid-cols-2" style={{ animationDelay: '400ms' }}>
         <section>
           <div className="border-t-2 border-[#14181d] pt-3">
             <MicroLabel className="text-[#15803D]">Strengths</MicroLabel>
@@ -276,7 +332,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
         </section>
       </div>
 
-      <section className="mt-10 border-t-2 border-[#14181d] pt-4">
+      <section className="animate-reveal mt-10 border-t-2 border-[#14181d] pt-4" style={{ animationDelay: '600ms' }}>
         <MicroLabel className="text-[#1f6f6f]">NBA Comparison</MicroLabel>
         <p className="mt-2 font-display text-4xl text-[#14181d]">{comp?.name ?? '--'}</p>
         {comp?.reasoning ? (
@@ -287,7 +343,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
       </section>
 
       {proj != null && (
-        <section className="mt-8 border-t border-[#DBDDD6] pt-4">
+        <section className="animate-reveal mt-8 border-t border-[#DBDDD6] pt-4" style={{ animationDelay: '600ms' }}>
           <MicroLabel className="text-[#7a828c]">Draft Projection</MicroLabel>
           <p className="mt-1 font-sans text-lg font-semibold text-[#14181d]">
             {formatDraftProjectionRound(proj?.round)}
@@ -301,7 +357,7 @@ function ReportCard({ report, onShare, copied, responseTime }) {
         </section>
       )}
 
-      <footer className="mt-10 border-t border-[#DBDDD6] pt-3 font-mono text-[11px] text-[#7a828c]">
+      <footer className="animate-reveal mt-10 border-t border-[#DBDDD6] pt-3 font-mono text-[11px] text-[#7a828c]" style={{ animationDelay: '600ms' }}>
         {sources.length > 0 && (
           <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="uppercase tracking-[0.1em]">Sources</span>

@@ -12,6 +12,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
+# Optional Redis layer — the agent runs fine without the package or REDIS_URL.
+try:
+    import redis.asyncio as redis_asyncio
+except ImportError:  # pragma: no cover - package optional at runtime
+    redis_asyncio = None
+
 from db.cache import get_cached_report, set_cached_report
 from tools.bbref import get_college_stats, get_espn_college_stats, get_player_stats, get_wingspan
 from tools.euroleague import get_euroleague_stats
@@ -21,6 +27,49 @@ from tools.search import search
 load_dotenv(override=True)
 
 _report_cache: dict[str, Any] = {}
+
+# ── Redis cache layer (fast, TTL-bound, survives deploys) ────────────────────
+REDIS_TTL_SECONDS = 86400  # 24 hours
+_redis_client = None
+
+
+def _get_redis():
+    global _redis_client
+    if _redis_client is None and redis_asyncio is not None and os.getenv("REDIS_URL"):
+        try:
+            _redis_client = redis_asyncio.from_url(
+                os.getenv("REDIS_URL"),
+                decode_responses=True,
+                socket_timeout=2,
+                socket_connect_timeout=2,
+            )
+        except Exception:
+            _redis_client = None
+    return _redis_client
+
+
+async def _redis_get_report(redis_key: str) -> dict[str, Any] | None:
+    client = _get_redis()
+    if client is None:
+        return None
+    try:
+        payload = await client.get(redis_key)
+        if payload:
+            parsed = json.loads(payload)
+            return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+    return None
+
+
+async def _redis_set_report(redis_key: str, report: dict[str, Any]) -> None:
+    client = _get_redis()
+    if client is None:
+        return
+    try:
+        await client.set(redis_key, json.dumps(report, ensure_ascii=True), ex=REDIS_TTL_SECONDS)
+    except Exception:
+        pass
 
 # Validation failures across all reports this process has generated.
 # Exposed via /metrics so wrong-player incidents are observable.
@@ -35,16 +84,37 @@ _PLAUSIBLE_STAT_RANGES: dict[str, tuple[float, float]] = {
     "fg_pct": (0, 1),
     "three_pct": (0, 1),
     "ft_pct": (0, 1),
+    "fga": (0, 40),
+    "fta": (0, 25),
     "games": (0, 120),
     "minutes": (0, 48),
 }
 
+_PLAUSIBLE_ADVANCED_RANGES: dict[str, tuple[float, float]] = {
+    "ts_pct": (0, 1),
+    "usg_pct": (0, 1),
+    "bpm": (-15, 15),
+    "per": (0, 40),
+}
+
 _PLACEHOLDER_TEAM_VALUES = {"unknown", "n/a", "none", "null", "tbd", "--"}
+
+# Only sources from known basketball/sports outlets make it into a report.
+_ALLOWED_SOURCE_DOMAINS = [
+    "basketball-reference.com", "sports-reference.com", "espn.com",
+    "nbadraft.net", "tankathon.com", "nbascoutinglive.com",
+    "realgm.com", "hoopshype.com", "draftexpress.com",
+    "247sports.com", "rivals.com", "on3.com", "wikipedia.org",
+    "nba.com", "euroleague.net", "fiba.basketball", "proballers.com",
+    "nbadraftroom.com", "draftsite.com", "thedraftreview.com",
+    "si.com", "bleacherreport.com", "theathletic.com", "cbssports.com",
+    "usatoday.com", "washingtonpost.com", "latimes.com", "nypost.com",
+]
 
 
 class ScoutAgent:
     MODEL = "claude-sonnet-4-6"
-    MAX_TOOL_CALLS = 4
+    MAX_TOOL_CALLS = 5
     NAME_MATCH_THRESHOLD = 0.8
 
     def __init__(self) -> None:
@@ -152,8 +222,8 @@ class ScoutAgent:
 
     @staticmethod
     def _system_prompt() -> str:
-        return """SPEED MODE: You have a HARD budget of 4 tool calls total.
-Issue ALL FOUR tool calls AT ONCE in your FIRST response — do not
+        return """SPEED MODE: You have a HARD budget of 5 tool calls total.
+Issue ALL FIVE tool calls AT ONCE in your FIRST response — do not
 wait for any result before issuing the others; they execute in
 parallel. After the results return, generate the final JSON
 immediately. No second round of tool calls under any circumstances.
@@ -163,6 +233,7 @@ Default batch for college/NBA players:
 2. get_college_stats
 3. web_search: '{player_name} height weight position team 2026 NBA draft'
 4. web_search: '{player_name} scouting report strengths weaknesses stats 2025-26'
+5. web_search: '{player_name} true shooting percentage usage rate BPM PER advanced stats'
 
 For international pros, swap get_college_stats for
 get_euroleague_stats or get_fiba_profile.
@@ -180,6 +251,11 @@ or draft projections — extract and use that information directly.
 Extract numbers like '39.7% on two-point field goals' or '22.7%
 from three' from article text. Do not return null fields when the
 information exists in search results.
+
+Extract advanced metrics the same way: phrases like '58.4% true
+shooting', 'usage rate of 24.1%', 'BPM of 4.2', or 'PER of 21.3'
+become advanced.ts_pct 0.584, advanced.usg_pct 0.241,
+advanced.bpm 4.2, advanced.per 21.3. Null when not found.
 
 After retrieving stats from any tool, verify the player matches
 by checking:
@@ -213,8 +289,16 @@ Use EXACTLY this schema and these field names (do not invent your own):
     "fg_pct": number | null,     // decimal 0-1 from get_player_stats.fg_pct (e.g. 0.468, NOT 46.8)
     "three_pct": number | null,  // decimal 0-1 from get_player_stats.three_pct
     "ft_pct": number | null,     // decimal 0-1 from get_player_stats.ft_pct
+    "fga": number | null,        // from get_player_stats.fga (per game attempts, copy verbatim)
+    "fta": number | null,        // from get_player_stats.fta (per game attempts, copy verbatim)
     "games": integer | null,     // from get_player_stats.games
     "minutes": number | null     // from get_player_stats.minutes (per game)
+  },
+  "advanced": {
+    "ts_pct": number | null,     // true shooting, decimal 0-1 (e.g. 0.584, NOT 58.4)
+    "usg_pct": number | null,    // usage rate, decimal 0-1 (e.g. 0.241, NOT 24.1)
+    "bpm": number | null,        // box plus/minus, raw value (e.g. 4.2)
+    "per": number | null         // player efficiency rating, raw value (e.g. 21.3)
   },
   "strengths": [string, ...],    // 3-7 items, each citing a specific stat or observation
   "weaknesses": [string, ...],   // 2-5 items, each citing a specific gap or concern
@@ -320,6 +404,10 @@ Rules:
                 return {}
 
     @staticmethod
+    def _is_valid_source(url: str) -> bool:
+        return any(domain in url for domain in _ALLOWED_SOURCE_DOMAINS)
+
+    @staticmethod
     def _no_em_dash(text: Any) -> Any:
         """Enforce the house style rule deterministically: prompt adherence is not guaranteed."""
         if not isinstance(text, str):
@@ -348,8 +436,16 @@ Rules:
                 "fg_pct": None,
                 "three_pct": None,
                 "ft_pct": None,
+                "fga": None,
+                "fta": None,
                 "games": None,
                 "minutes": None,
+            },
+            "advanced": {
+                "ts_pct": None,
+                "usg_pct": None,
+                "bpm": None,
+                "per": None,
             },
             "strengths": [],
             "weaknesses": [],
@@ -366,6 +462,19 @@ Rules:
             raw.get("physical", {}) if isinstance(raw.get("physical"), dict) else {}
         )
         report["stats"] = default["stats"] | (raw.get("stats", {}) if isinstance(raw.get("stats"), dict) else {})
+        report["advanced"] = default["advanced"] | (
+            raw.get("advanced", {}) if isinstance(raw.get("advanced"), dict) else {}
+        )
+        # Derive true shooting from scraped per-game attempts when search
+        # extraction found nothing: TS% = PTS / (2 * (FGA + 0.44 * FTA)).
+        if report["advanced"].get("ts_pct") is None:
+            pts = report["stats"].get("pts")
+            fga = report["stats"].get("fga")
+            fta = report["stats"].get("fta")
+            if all(isinstance(v, (int, float)) for v in (pts, fga, fta)):
+                true_shot_attempts = fga + 0.44 * fta
+                if true_shot_attempts > 0:
+                    report["advanced"]["ts_pct"] = round(pts / (2 * true_shot_attempts), 3)
         report["nba_comp"] = default["nba_comp"] | (
             raw.get("nba_comp", {}) if isinstance(raw.get("nba_comp"), dict) else {}
         )
@@ -399,7 +508,8 @@ Rules:
 
         report_sources = [str(src) for src in raw.get("sources", []) if isinstance(src, str)]
         merged_sources = list(dict.fromkeys([*report_sources, *sorted(sources)]))
-        report["sources"] = merged_sources
+        # Model-listed URLs get vetted too, not just tool-result URLs.
+        report["sources"] = [src for src in merged_sources if self._is_valid_source(src)]
 
         if not isinstance(report.get("generated_at"), str) or not report["generated_at"]:
             report["generated_at"] = datetime.now(UTC).isoformat()
@@ -494,6 +604,14 @@ Rules:
             value = stats.get(field)
             if isinstance(value, (int, float)) and not low <= value <= high:
                 issues.append(f"stat out of plausible range: {field}={value} (expected {low}-{high})")
+
+        advanced = report.get("advanced") or {}
+        for field, (low, high) in _PLAUSIBLE_ADVANCED_RANGES.items():
+            value = advanced.get(field)
+            if isinstance(value, (int, float)) and not low <= value <= high:
+                issues.append(
+                    f"advanced stat out of plausible range: {field}={value} (expected {low}-{high})"
+                )
 
         return issues
 
@@ -633,12 +751,21 @@ Rules:
             cached["cached"] = True
             return cached
 
-        # Second layer: persistent Supabase cache (survives server restarts).
+        # Second layer: Redis with a 24h TTL (fast, survives deploys, stays fresh).
+        redis_key = f"scout:{player_name.lower().strip()}"
+        redis_report = await _redis_get_report(redis_key)
+        if redis_report:
+            redis_report["cached"] = True
+            _report_cache[cache_key] = redis_report  # warm the in-memory layer
+            return redis_report
+
+        # Third layer: persistent Supabase cache (survives server restarts).
         player_key = player_name.lower().strip().replace(" ", "_")
         persisted = await get_cached_report(player_key)
         if persisted:
             persisted["cached"] = True
             _report_cache[cache_key] = persisted  # warm the in-memory layer
+            await _redis_set_report(redis_key, persisted)  # warm the Redis layer
             return persisted
 
         report = await self._generate_once(player_name, progress_cb=progress_cb)
@@ -674,6 +801,8 @@ Rules:
         if len(_report_cache) > 50:
             _report_cache.clear()
         _report_cache[cache_key] = report
-        # Persist to Supabase so the report survives restarts and saves future API calls.
+        # Persist to Redis (24h TTL) and Supabase so the report survives
+        # restarts and deploys and saves future API calls.
+        await _redis_set_report(redis_key, report)
         await set_cached_report(player_key, report)
         return report

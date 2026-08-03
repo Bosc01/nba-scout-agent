@@ -10,6 +10,7 @@ import time, sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 from agents.scout import ScoutAgent, validation_log
 from db.cache import get_cache_stats
+from db.history import get_recent_searches, record_search
 
 app = FastAPI(title="NBA Scout Agent")
 app.add_middleware(
@@ -111,8 +112,14 @@ jobs: dict = {}
 _background_tasks: set = set()
 
 
-def _record_search(player_name: str, position: str | None, team: str | None) -> None:
-    """Append to recent_searches, deduplicate, keep last 20."""
+def _record_search(
+    player_name: str,
+    position: str | None,
+    team: str | None,
+    confidence: float | None = None,
+    response_time: float | None = None,
+) -> None:
+    """Record in memory (fallback) and persist to Supabase search_history."""
     key = player_name.strip().lower()
     global recent_searches
     recent_searches = [e for e in recent_searches if e["player_name"].lower() != key]
@@ -123,6 +130,13 @@ def _record_search(player_name: str, position: str | None, team: str | None) -> 
         "timestamp": datetime.now(UTC).isoformat(),
     })
     recent_searches = recent_searches[:20]
+
+    # Fire-and-forget: persistence must never slow down or fail a request.
+    task = asyncio.create_task(
+        record_search(player_name.strip(), position, team, confidence, response_time)
+    )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 RATE_LIMIT_MAX_REQUESTS = 3
@@ -179,6 +193,8 @@ async def _run_scout_job(job_id: str, player_name: str, client_ip: str) -> None:
             report.get("player_name") or player_name,
             report.get("position"),
             report.get("team"),
+            report.get("confidence"),
+            elapsed,
         )
         request_metrics["success"] += 1
         _track_report(client_ip, player_name, elapsed, report, "/scout")
@@ -217,10 +233,9 @@ async def scout(req: ScoutRequest, request: Request):
     return {"job_id": job_id, "status": "processing"}
 
 
-@app.post("/scout/stream")
-async def scout_stream(req: ScoutRequest, request: Request):
+async def _scout_stream_response(player_name: str, request: Request):
     """Stream agent progress as Server-Sent Events, ending with the full report."""
-    if not req.player_name.strip():
+    if not player_name.strip():
         raise HTTPException(status_code=400, detail="Player name required")
     client_ip = request.client.host if request.client else "unknown"
     if _is_rate_limited(client_ip):
@@ -238,16 +253,18 @@ async def scout_stream(req: ScoutRequest, request: Request):
     async def run() -> None:
         try:
             agent = ScoutAgent()
-            report = await agent.generate_report(req.player_name, progress_cb=progress_cb)
+            report = await agent.generate_report(player_name, progress_cb=progress_cb)
             elapsed = round(time.time() - start, 2)
             report["response_time_seconds"] = elapsed
             _record_search(
-                report.get("player_name") or req.player_name,
+                report.get("player_name") or player_name,
                 report.get("position"),
                 report.get("team"),
+                report.get("confidence"),
+                elapsed,
             )
             request_metrics["success"] += 1
-            _track_report(client_ip, req.player_name, elapsed, report, "/scout/stream")
+            _track_report(client_ip, player_name, elapsed, report, "/scout/stream")
             await queue.put({"type": "report", "report": report})
         except Exception as e:
             request_metrics["failed"] += 1
@@ -271,6 +288,18 @@ async def scout_stream(req: ScoutRequest, request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/scout/stream")
+async def scout_stream(req: ScoutRequest, request: Request):
+    return await _scout_stream_response(req.player_name, request)
+
+
+# GET variant: EventSource and curl both speak GET with a query param.
+# Declared before /scout/{job_id} so "stream" never matches as a job id.
+@app.get("/scout/stream")
+async def scout_stream_get(player_name: str, request: Request):
+    return await _scout_stream_response(player_name, request)
 
 
 @app.get("/scout/{job_id}")
@@ -300,11 +329,15 @@ async def compare(req: CompareRequest, request: Request):
             report_one.get("player_name") or req.player_one,
             report_one.get("position"),
             report_one.get("team"),
+            report_one.get("confidence"),
+            elapsed,
         )
         _record_search(
             report_two.get("player_name") or req.player_two,
             report_two.get("position"),
             report_two.get("team"),
+            report_two.get("confidence"),
+            elapsed,
         )
         request_metrics["success"] += 1
         _track_report(client_ip, req.player_one, elapsed, report_one, "/compare")
@@ -321,6 +354,10 @@ async def compare(req: CompareRequest, request: Request):
 
 @app.get("/recent")
 async def recent():
+    # Supabase history survives restarts and deploys; memory is the fallback.
+    persisted = await get_recent_searches(10)
+    if persisted is not None:
+        return persisted
     return recent_searches[:10]
 
 
