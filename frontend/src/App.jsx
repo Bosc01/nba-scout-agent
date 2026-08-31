@@ -213,6 +213,9 @@ function ReportCard({ report, onShare, copied, responseTime }) {
       <p className="mt-2 font-sans text-sm font-medium text-[#1f6f6f]">
         {report.position ?? '--'} · {report.team ?? '--'} ·{' '}
         {report.age != null ? `${report.age} yrs` : '--'}
+        {report.season ? (
+          <span className="text-[#7a828c]"> · {report.season} season</span>
+        ) : null}
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -483,11 +486,13 @@ export default function App() {
 
   // Primary path: POST /scout/stream (SSE). Returns the report, or null if the
   // endpoint doesn't exist yet (older deployed backend) so we can fall back.
-  async function streamScout(combinedName, runState) {
+  // Team goes in its own field so the backend can validate tool-returned teams
+  // against it instead of substring-matching a concatenated search string.
+  async function streamScout(name, teamContext, runState) {
     const resp = await fetch(`${API_URL}/scout/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ player_name: combinedName }),
+      body: JSON.stringify({ player_name: name, team_context: teamContext || null }),
     })
     if (resp.status === 404 || resp.status === 405) return null
     if (!resp.ok) {
@@ -533,14 +538,14 @@ export default function App() {
   }
 
   // Fallback path: job-based POST /scout + poll GET /scout/{job_id}.
-  async function pollScout(combinedName, runState, startTime) {
+  async function pollScout(name, teamContext, runState, startTime) {
     const POLL_INTERVAL_MS = 2000
     const TIMEOUT_MS = 90000
 
     const response = await fetch(`${API_URL}/scout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ player_name: combinedName }),
+      body: JSON.stringify({ player_name: name, team_context: teamContext || null }),
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(data?.detail || 'Failed to generate scouting report')
@@ -571,7 +576,6 @@ export default function App() {
     const trimmedPlayer = String(nextPlayerName ?? '').trim()
     const trimmedTeam = String(nextTeamOrSchool ?? '').trim()
     if (!trimmedPlayer) return
-    const combinedPlayerName = trimmedTeam ? `${trimmedPlayer} ${trimmedTeam}` : trimmedPlayer
 
     // Cancel any run still in flight from a previous search.
     if (runRef.current) runRef.current.cancelled = true
@@ -591,10 +595,10 @@ export default function App() {
     }, 1000)
 
     try {
-      let result = await streamScout(combinedPlayerName, runState)
+      let result = await streamScout(trimmedPlayer, trimmedTeam, runState)
       if (result === null && !runState.cancelled) {
         addStepFromEvent({ type: 'phase', label: `Researching ${trimmedPlayer}` }, runState)
-        result = await pollScout(combinedPlayerName, runState, startTime)
+        result = await pollScout(trimmedPlayer, trimmedTeam, runState, startTime)
       }
       if (runState.cancelled) return
       if (!result) throw new Error('No report returned from server')
@@ -744,7 +748,7 @@ export default function App() {
 
             {!report && !loading && recentSearches.length > 0 && (
               <div className="mt-10">
-                <MicroLabel className="text-[#7a828c]">Recent files</MicroLabel>
+                <MicroLabel className="text-[#7a828c]">Recent files · from all visitors</MicroLabel>
                 <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1.5 font-sans text-sm">
                   {recentSearches.slice(0, 8).map((entry, idx) => (
                     <span key={entry.player_name} className="flex items-baseline gap-x-2">

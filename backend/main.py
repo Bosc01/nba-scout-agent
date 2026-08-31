@@ -1,16 +1,44 @@
 import asyncio
+import hashlib
 import json
+import os
+import re
+import sys
+import time
 from datetime import UTC, datetime
+from uuid import uuid4
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from uuid import uuid4
-import time, sys, os
+from pydantic import BaseModel, constr
+
 sys.path.insert(0, os.path.dirname(__file__))
 from agents.scout import ScoutAgent, validation_log
+from db import redis_cache
 from db.cache import get_cache_stats
 from db.history import get_recent_searches, record_search
+
+# ── Input constraints ────────────────────────────────────────────────────────
+# Unbounded player_name reached the model prompt, scraper query strings, and
+# cache keys verbatim. Length-capped, whitespace-stripped, and screened for
+# URL/injection characters while still allowing accented international names.
+PLAYER_NAME_MAX = 80
+PlayerName = constr(strip_whitespace=True, min_length=1, max_length=PLAYER_NAME_MAX)
+_FORBIDDEN_NAME_CHARS = re.compile(r"[<>{}\[\]\\|^~`$%&#@!?;:/=+*\"()\x00-\x1f]")
+
+
+def _clean_player_name(raw: str, field: str = "player_name") -> str:
+    name = (raw or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail=f"{field} required")
+    if len(name) > PLAYER_NAME_MAX:
+        raise HTTPException(
+            status_code=400, detail=f"{field} too long (max {PLAYER_NAME_MAX} characters)"
+        )
+    if _FORBIDDEN_NAME_CHARS.search(name):
+        raise HTTPException(status_code=400, detail=f"{field} contains unsupported characters")
+    return name
 
 app = FastAPI(title="NBA Scout Agent")
 app.add_middleware(
@@ -66,12 +94,21 @@ def _field_completeness(report: dict) -> float:
     return round(non_null / len(values), 3)
 
 
+# Raw client IPs are personal data; PostHog gets a salted hash that still
+# distinguishes users without storing the address itself.
+_IP_HASH_SALT = os.getenv("POSTHOG_IP_SALT", "nbascout-ip-salt")
+
+
+def _hashed_distinct_id(client_ip: str) -> str:
+    return hashlib.sha256(f"{_IP_HASH_SALT}:{client_ip}".encode()).hexdigest()[:16]
+
+
 def _track_report(client_ip: str, player_name: str, elapsed: float, report: dict, endpoint: str) -> None:
     if posthog_client is None:
         return
     try:
         posthog_client.capture(
-            distinct_id=client_ip or "anonymous",
+            distinct_id=_hashed_distinct_id(client_ip or "anonymous"),
             event="report_generated",
             properties={
                 "player_name": player_name,
@@ -93,11 +130,12 @@ request_metrics = {"total": 0, "success": 0, "failed": 0}
 
 
 class ScoutRequest(BaseModel):
-    player_name: str
+    player_name: PlayerName
+    team_context: PlayerName | None = None
 
 class CompareRequest(BaseModel):
-    player_one: str
-    player_two: str
+    player_one: PlayerName
+    player_two: PlayerName
 
 
 recent_searches: list[dict] = []
@@ -144,7 +182,15 @@ RATE_LIMIT_WINDOW_SECONDS = 3600
 request_log_by_ip: dict[str, list[float]] = {}
 
 
-def _is_rate_limited(ip: str) -> bool:
+async def _is_rate_limited(ip: str) -> bool:
+    # Redis-backed when available, so the budget survives deploys and is
+    # shared across replicas; in-memory sliding window otherwise.
+    count = await redis_cache.incr_with_window(
+        f"ratelimit:{ip}", RATE_LIMIT_WINDOW_SECONDS
+    )
+    if count is not None:
+        return count > RATE_LIMIT_MAX_REQUESTS
+
     now = time.time()
     request_times = request_log_by_ip.get(ip, [])
     request_times = [t for t in request_times if now - t < RATE_LIMIT_WINDOW_SECONDS]
@@ -181,12 +227,14 @@ async def metrics():
     }
 
 
-async def _run_scout_job(job_id: str, player_name: str, client_ip: str) -> None:
+async def _run_scout_job(
+    job_id: str, player_name: str, client_ip: str, team_context: str | None = None
+) -> None:
     """Run the scout agent in the background and store the result in `jobs`."""
     start = time.time()
     try:
         agent = ScoutAgent()
-        report = await agent.generate_report(player_name)
+        report = await agent.generate_report(player_name, team_context=team_context)
         elapsed = round(time.time() - start, 2)
         report["response_time_seconds"] = elapsed
         _record_search(
@@ -206,10 +254,10 @@ async def _run_scout_job(job_id: str, player_name: str, client_ip: str) -> None:
 
 @app.post("/scout")
 async def scout(req: ScoutRequest, request: Request):
-    if not req.player_name.strip():
-        raise HTTPException(status_code=400, detail="Player name required")
+    player_name = _clean_player_name(req.player_name)
+    team_context = _clean_player_name(req.team_context, "team_context") if req.team_context else None
     client_ip = request.client.host if request.client else "unknown"
-    if _is_rate_limited(client_ip):
+    if await _is_rate_limited(client_ip):
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Please try again later.",
@@ -226,19 +274,19 @@ async def scout(req: ScoutRequest, request: Request):
 
     # Run the agent concurrently and return immediately so the request itself
     # never blocks past Render's 30s limit — the client polls /scout/{job_id}.
-    task = asyncio.create_task(_run_scout_job(job_id, req.player_name, client_ip))
+    task = asyncio.create_task(_run_scout_job(job_id, player_name, client_ip, team_context))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
     return {"job_id": job_id, "status": "processing"}
 
 
-async def _scout_stream_response(player_name: str, request: Request):
+async def _scout_stream_response(player_name: str, request: Request, team_context: str | None = None):
     """Stream agent progress as Server-Sent Events, ending with the full report."""
-    if not player_name.strip():
-        raise HTTPException(status_code=400, detail="Player name required")
+    player_name = _clean_player_name(player_name)
+    team_context = _clean_player_name(team_context, "team_context") if team_context else None
     client_ip = request.client.host if request.client else "unknown"
-    if _is_rate_limited(client_ip):
+    if await _is_rate_limited(client_ip):
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Please try again later.",
@@ -253,7 +301,9 @@ async def _scout_stream_response(player_name: str, request: Request):
     async def run() -> None:
         try:
             agent = ScoutAgent()
-            report = await agent.generate_report(player_name, progress_cb=progress_cb)
+            report = await agent.generate_report(
+                player_name, progress_cb=progress_cb, team_context=team_context
+            )
             elapsed = round(time.time() - start, 2)
             report["response_time_seconds"] = elapsed
             _record_search(
@@ -292,14 +342,14 @@ async def _scout_stream_response(player_name: str, request: Request):
 
 @app.post("/scout/stream")
 async def scout_stream(req: ScoutRequest, request: Request):
-    return await _scout_stream_response(req.player_name, request)
+    return await _scout_stream_response(req.player_name, request, req.team_context)
 
 
 # GET variant: EventSource and curl both speak GET with a query param.
 # Declared before /scout/{job_id} so "stream" never matches as a job id.
 @app.get("/scout/stream")
-async def scout_stream_get(player_name: str, request: Request):
-    return await _scout_stream_response(player_name, request)
+async def scout_stream_get(player_name: str, request: Request, team_context: str | None = None):
+    return await _scout_stream_response(player_name, request, team_context)
 
 
 @app.get("/scout/{job_id}")
@@ -312,36 +362,43 @@ async def scout_status(job_id: str):
 
 @app.post("/compare")
 async def compare(req: CompareRequest, request: Request):
-    if not req.player_one.strip() or not req.player_two.strip():
-        raise HTTPException(status_code=400, detail="Both player names required")
+    player_one = _clean_player_name(req.player_one, "player_one")
+    player_two = _clean_player_name(req.player_two, "player_two")
     client_ip = request.client.host if request.client else "unknown"
+    # Same limiter as /scout: this endpoint runs TWO full agents per call and
+    # was previously an unbounded Claude and scrape amplifier.
+    if await _is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Please try again later.",
+        )
     request_metrics["total"] += 1
     start = time.time()
     try:
         agent_one = ScoutAgent()
         agent_two = ScoutAgent()
         report_one, report_two = await asyncio.gather(
-            agent_one.generate_report(req.player_one),
-            agent_two.generate_report(req.player_two),
+            agent_one.generate_report(player_one),
+            agent_two.generate_report(player_two),
         )
         elapsed = round(time.time() - start, 2)
         _record_search(
-            report_one.get("player_name") or req.player_one,
+            report_one.get("player_name") or player_one,
             report_one.get("position"),
             report_one.get("team"),
             report_one.get("confidence"),
             elapsed,
         )
         _record_search(
-            report_two.get("player_name") or req.player_two,
+            report_two.get("player_name") or player_two,
             report_two.get("position"),
             report_two.get("team"),
             report_two.get("confidence"),
             elapsed,
         )
         request_metrics["success"] += 1
-        _track_report(client_ip, req.player_one, elapsed, report_one, "/compare")
-        _track_report(client_ip, req.player_two, elapsed, report_two, "/compare")
+        _track_report(client_ip, player_one, elapsed, report_one, "/compare")
+        _track_report(client_ip, player_two, elapsed, report_two, "/compare")
         return {
             "player_one": report_one,
             "player_two": report_two,

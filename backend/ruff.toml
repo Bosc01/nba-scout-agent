@@ -1,0 +1,6 @@
+line-length = 110
+
+[lint]
+# Correctness and import hygiene. Blind `except Exception` is deliberate in
+# this codebase: every scraper and cache layer degrades to a no-op by contract.
+select = ["E4", "E7", "E9", "F", "I"]

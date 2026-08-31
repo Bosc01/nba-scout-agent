@@ -4,10 +4,9 @@ import asyncio
 from typing import Any
 from urllib.parse import quote_plus
 
-from ddgs import DDGS
 import httpx
 from bs4 import BeautifulSoup
-
+from ddgs import DDGS
 
 _HEADERS = {
     "User-Agent": (

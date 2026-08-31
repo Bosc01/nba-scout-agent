@@ -6,10 +6,21 @@ import httpx
 from bs4 import BeautifulSoup
 
 from tools.search import search
+from tools.urlguard import UnsafeURLError, is_allowed_url, safe_get
+
+_EUROLEAGUE_DOMAINS = {"euroleague.net", "euroleaguebasketball.net"}
+
+_HEADERS = {
+    "User-Agent": "NBAScoutBot/1.0 (+https://nbascout.app)",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 def _empty_result() -> dict:
     return {
+        "status": None,
+        "http_status": None,
+        "error": None,
         "player_name": None,
         "position": None,
         "height": None,
@@ -27,6 +38,14 @@ def _empty_result() -> dict:
         "level": "euroleague",
         "confidence": 0.0,
     }
+
+
+def _failure(status: str, *, http_status: int | None = None, error: str | None = None) -> dict:
+    result = _empty_result()
+    result["status"] = status
+    result["http_status"] = http_status
+    result["error"] = error
+    return result
 
 
 def _to_float(value: str | None) -> float | None:
@@ -48,29 +67,28 @@ def _to_int(value: str | None) -> int | None:
 
 
 async def get_euroleague_stats(player_name: str) -> dict:
-    result = _empty_result()
     if not player_name.strip():
-        return result
+        return _failure("not_found", error="empty player name")
 
     try:
         results = await search(f"{player_name} euroleague stats", max_results=8)
         player_url = None
         for item in results:
             url = str(item.get("url", ""))
-            if "euroleague.net" in url or "euroleaguebasketball.net" in url:
+            # Hostname allowlist, not substring: "euroleague.net" in url passes
+            # for any URL that merely mentions the domain in its query string.
+            if is_allowed_url(url, _EUROLEAGUE_DOMAINS):
                 player_url = url
                 break
         if not player_url:
-            return result
+            return _failure("not_found", error="no euroleague.net page in search results")
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-            response = await client.get(player_url, headers=headers)
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await safe_get(client, player_url, _EUROLEAGUE_DOMAINS, headers=_HEADERS)
             if response.status_code != 200 or not response.text:
-                return result
+                status = "blocked" if response.status_code in (403, 429) else "parse_failed"
+                return _failure(status, http_status=response.status_code,
+                                error=f"page returned HTTP {response.status_code}")
 
         soup = BeautifulSoup(response.text, "html.parser")
         page_text = soup.get_text(" ", strip=True)
@@ -83,10 +101,15 @@ async def get_euroleague_stats(player_name: str) -> dict:
         pts_match = re.search(r"\bPTS\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
         reb_match = re.search(r"\bREB\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
         ast_match = re.search(r"\bAST\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
-        games_match = re.search(r"\bGP\b\s*([0-9]+)", page_text) or re.search(r"\bGames\b\s*([0-9]+)", page_text)
+        games_match = re.search(r"\bGP\b\s*([0-9]+)", page_text) or re.search(
+            r"\bGames\b\s*([0-9]+)", page_text
+        )
 
+        result = _empty_result()
         result.update(
             {
+                "status": "ok",
+                "http_status": 200,
                 "player_name": name or player_name,
                 "team": team_match.group(1).strip() if team_match else None,
                 "pts": _to_float(pts_match.group(1) if pts_match else None),
@@ -107,5 +130,7 @@ async def get_euroleague_stats(player_name: str) -> dict:
         ]
         result["confidence"] = round(sum(v is not None for v in score_fields) / 13, 3)
         return result
-    except Exception:
-        return result
+    except UnsafeURLError as exc:
+        return _failure("parse_failed", error=str(exc))
+    except Exception as exc:
+        return _failure("parse_failed", error=str(exc))

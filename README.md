@@ -35,9 +35,42 @@ Python, FastAPI, Claude API (tool use), React, Tailwind, Railway
   this use case
 
 ## Local setup
-cd backend && pip install -r requirements.txt
-cp .env.example .env  # add your ANTHROPIC_API_KEY
-uvicorn main:app --reload
 
-cd frontend && npm install && npm run dev
+Backend:
+
+    cd backend && pip install -r requirements.txt
+    cp .env.example .env  # add your ANTHROPIC_API_KEY
+    uvicorn main:app --reload
+
+Frontend:
+
+    cd frontend && npm install && npm run dev
+
+## Configuration
+
+- `VITE_API_URL` — the backend URL the frontend calls. Defaults to
+  `http://localhost:8000` for local dev; production builds must set it
+  to the deployed API origin (for example in the host's build settings)
+  or every request will point at localhost.
+- Backend environment variables are documented in `backend/.env.example`.
+  All of them except `ANTHROPIC_API_KEY` are optional; each feature
+  degrades to a no-op when its variable is missing.
+
+## Database migrations
+
+SQL migrations live in `backend/db/migrations/`, ordered by prefix.
+Run them once in the Supabase SQL editor before enabling the report
+cache and search history:
+
+    backend/db/migrations/000_report_cache.sql
+    backend/db/migrations/001_search_history.sql
+
+## Tests
+
+    cd backend && pip install -r requirements-dev.txt
+    python -m pytest tests/ -q
+    ruff check .
+
+CI (GitHub Actions) runs ruff, pytest, and the frontend build on every
+push and pull request.
 

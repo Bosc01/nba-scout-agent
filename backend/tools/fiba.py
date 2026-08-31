@@ -6,6 +6,14 @@ import httpx
 from bs4 import BeautifulSoup
 
 from tools.search import search
+from tools.urlguard import UnsafeURLError, is_allowed_url, safe_get
+
+_FIBA_DOMAINS = {"fiba.basketball", "fiba.com"}
+
+_HEADERS = {
+    "User-Agent": "NBAScoutBot/1.0 (+https://nbascout.app)",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 def _to_float(value: str | None) -> float | None:
@@ -28,6 +36,9 @@ def _to_int(value: str | None) -> int | None:
 
 def _empty_result() -> dict:
     return {
+        "status": None,
+        "http_status": None,
+        "error": None,
         "player_name": None,
         "position": None,
         "height": None,
@@ -47,10 +58,17 @@ def _empty_result() -> dict:
     }
 
 
-async def get_fiba_profile(player_name: str) -> dict:
+def _failure(status: str, *, http_status: int | None = None, error: str | None = None) -> dict:
     result = _empty_result()
+    result["status"] = status
+    result["http_status"] = http_status
+    result["error"] = error
+    return result
+
+
+async def get_fiba_profile(player_name: str) -> dict:
     if not player_name.strip():
-        return result
+        return _failure("not_found", error="empty player name")
 
     try:
         results = await search(f"{player_name} FIBA basketball profile stats", max_results=8)
@@ -58,7 +76,9 @@ async def get_fiba_profile(player_name: str) -> dict:
         fallback_title = None
         for item in results:
             url = str(item.get("url", ""))
-            if "fiba" in url.lower():
+            # Hostname allowlist, not the old `"fiba" in url.lower()` substring
+            # check, which any URL mentioning fiba anywhere would pass.
+            if is_allowed_url(url, _FIBA_DOMAINS):
                 profile_url = url
                 fallback_title = str(item.get("title", "")) if isinstance(item, dict) else ""
                 break
@@ -66,21 +86,19 @@ async def get_fiba_profile(player_name: str) -> dict:
             backup_results = await search(f"site:fiba.basketball {player_name}", max_results=8)
             for item in backup_results:
                 url = str(item.get("url", ""))
-                if "fiba.basketball" in url.lower():
+                if is_allowed_url(url, _FIBA_DOMAINS):
                     profile_url = url
                     fallback_title = str(item.get("title", "")) if isinstance(item, dict) else ""
                     break
         if not profile_url:
-            return result
+            return _failure("not_found", error="no fiba.basketball page in search results")
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-            response = await client.get(profile_url, headers=headers)
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await safe_get(client, profile_url, _FIBA_DOMAINS, headers=_HEADERS)
             if response.status_code != 200 or not response.text:
-                return result
+                status = "blocked" if response.status_code in (403, 429) else "parse_failed"
+                return _failure(status, http_status=response.status_code,
+                                error=f"page returned HTTP {response.status_code}")
 
         soup = BeautifulSoup(response.text, "html.parser")
         page_text = soup.get_text(" ", strip=True)
@@ -100,7 +118,9 @@ async def get_fiba_profile(player_name: str) -> dict:
         pts_match = re.search(r"\bPTS\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
         reb_match = re.search(r"\bREB\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
         ast_match = re.search(r"\bAST\b\s*([0-9]+(?:\.[0-9]+)?)", page_text)
-        games_match = re.search(r"\bGP\b\s*([0-9]+)", page_text) or re.search(r"\bGames\b\s*([0-9]+)", page_text)
+        games_match = re.search(r"\bGP\b\s*([0-9]+)", page_text) or re.search(
+            r"\bGames\b\s*([0-9]+)", page_text
+        )
         if not pts_match:
             pts_match = re.search(r"\bPoints\b[:\s\-]*([0-9]+(?:\.[0-9]+)?)", page_text)
         if not reb_match:
@@ -108,8 +128,11 @@ async def get_fiba_profile(player_name: str) -> dict:
         if not ast_match:
             ast_match = re.search(r"\bAssists\b[:\s\-]*([0-9]+(?:\.[0-9]+)?)", page_text)
 
+        result = _empty_result()
         result.update(
             {
+                "status": "ok",
+                "http_status": 200,
                 "player_name": name,
                 "position": pos_match.group(1).strip() if pos_match else None,
                 "height": height_match.group(1) if height_match else None,
@@ -142,5 +165,7 @@ async def get_fiba_profile(player_name: str) -> dict:
             result["player_name"] = player_name
             result["confidence"] = round(1 / 13, 3)
         return result
-    except Exception:
-        return result
+    except UnsafeURLError as exc:
+        return _failure("parse_failed", error=str(exc))
+    except Exception as exc:
+        return _failure("parse_failed", error=str(exc))
