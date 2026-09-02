@@ -1,0 +1,186 @@
+{
+  "description": "Ground-truth roster for the identity eval harness. team_aliases lists every team the player is legitimately associated with (college and pro), because scrapers may return either the latest college season or an NBA page. verified_as_of is the date the aliases were last checked by a human.",
+  "verified_as_of": "2026-09-02",
+  "players": [
+    {
+      "name": "Jordan Pope",
+      "team_aliases": [
+        "Texas",
+        "Texas Longhorns",
+        "Oregon State"
+      ],
+      "position_group": "G",
+      "level": "college"
+    },
+    {
+      "name": "Cameron Boozer",
+      "team_aliases": [
+        "Duke",
+        "Duke Blue Devils"
+      ],
+      "position_group": "F",
+      "level": "college"
+    },
+    {
+      "name": "Cayden Boozer",
+      "team_aliases": [
+        "Duke",
+        "Duke Blue Devils"
+      ],
+      "position_group": "G",
+      "level": "college"
+    },
+    {
+      "name": "AJ Dybantsa",
+      "team_aliases": [
+        "BYU",
+        "Brigham Young",
+        "BYU Cougars"
+      ],
+      "position_group": "F",
+      "level": "college"
+    },
+    {
+      "name": "Darryn Peterson",
+      "team_aliases": [
+        "Kansas",
+        "Kansas Jayhawks"
+      ],
+      "position_group": "G",
+      "level": "college"
+    },
+    {
+      "name": "Nate Ament",
+      "team_aliases": [
+        "Tennessee",
+        "Tennessee Volunteers"
+      ],
+      "position_group": "F",
+      "level": "college"
+    },
+    {
+      "name": "Braden Smith",
+      "team_aliases": [
+        "Purdue",
+        "Purdue Boilermakers"
+      ],
+      "position_group": "G",
+      "level": "college",
+      "note": "2026-09-02 eval reported 'Indiana Pacers (Two-Way)'. Aliases predate the 2026 draft; verify and add the Pacers if correct."
+    },
+    {
+      "name": "Xaivian Lee",
+      "team_aliases": [
+        "Florida",
+        "Florida Gators",
+        "Princeton"
+      ],
+      "position_group": "G",
+      "level": "college"
+    },
+    {
+      "name": "Tucker DeVries",
+      "team_aliases": [
+        "Indiana",
+        "Indiana Hoosiers",
+        "West Virginia",
+        "Drake"
+      ],
+      "position_group": "F",
+      "level": "college"
+    },
+    {
+      "name": "Cooper Flagg",
+      "team_aliases": [
+        "Dallas Mavericks",
+        "Duke"
+      ],
+      "position_group": "F",
+      "level": "pro"
+    },
+    {
+      "name": "Dylan Harper",
+      "team_aliases": [
+        "San Antonio Spurs",
+        "Rutgers"
+      ],
+      "position_group": "G",
+      "level": "pro"
+    },
+    {
+      "name": "VJ Edgecombe",
+      "team_aliases": [
+        "Philadelphia 76ers",
+        "Baylor"
+      ],
+      "position_group": "G",
+      "level": "pro"
+    },
+    {
+      "name": "Kon Knueppel",
+      "team_aliases": [
+        "Charlotte Hornets",
+        "Duke"
+      ],
+      "position_group": "G",
+      "level": "pro"
+    },
+    {
+      "name": "Kasparas Jakucionis",
+      "team_aliases": [
+        "Miami Heat",
+        "Illinois"
+      ],
+      "position_group": "G",
+      "level": "pro"
+    },
+    {
+      "name": "Egor Demin",
+      "team_aliases": [
+        "Brooklyn Nets",
+        "BYU"
+      ],
+      "position_group": "G",
+      "level": "pro"
+    },
+    {
+      "name": "Kam Jones",
+      "team_aliases": [
+        "Indiana Pacers",
+        "Marquette"
+      ],
+      "position_group": "G",
+      "level": "pro",
+      "note": "Regression case: a 2026-08 report returned Milwaukee Bucks (wrong team, right player)."
+    },
+    {
+      "name": "Hunter Sallis",
+      "team_aliases": [
+        "Philadelphia 76ers",
+        "Wake Forest",
+        "Gonzaga"
+      ],
+      "position_group": "G",
+      "level": "pro"
+    },
+    {
+      "name": "Jalen Williams",
+      "team_aliases": [
+        "Oklahoma City Thunder",
+        "Santa Clara"
+      ],
+      "position_group": "F",
+      "level": "pro",
+      "note": "Disambiguation case: OKC also rosters Jaylin Williams; Jaylen Williams also exists."
+    },
+    {
+      "name": "Victor Wembanyama",
+      "team_aliases": [
+        "San Antonio Spurs",
+        "Metropolitans 92"
+      ],
+      "position_group": "C",
+      "level": "pro"
+    }
+  ]
+}

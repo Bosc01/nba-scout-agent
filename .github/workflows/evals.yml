@@ -1,0 +1,39 @@
+# Manual-trigger only, deliberately: every eval player is a real Anthropic
+# API call (~$0.05-0.10 each). No cron, so this never spends money unattended.
+# Requires the ANTHROPIC_API_KEY repository secret. Runs nothing on Render.
+name: Evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Players to run (each ~$0.05-0.10 of API usage)"
+        default: "8"
+        required: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Run evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: cd backend && python -m evals.run_evals --limit "${{ inputs.limit }}"
+      - name: Publish scorecard to run summary
+        if: always()
+        run: cat EVALS.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: |
+            EVALS.md
+            backend/evals/results/

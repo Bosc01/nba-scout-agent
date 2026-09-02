@@ -65,6 +65,18 @@ cache and search history:
     backend/db/migrations/000_report_cache.sql
     backend/db/migrations/001_search_history.sql
 
+## Evals
+
+Identity evals run the live agent against a ground-truth roster
+(`backend/evals/roster.json`) and write a dated scorecard to `EVALS.md`:
+
+    cd backend && python -m evals.run_evals --limit 8
+
+Every player is one real Anthropic API call (roughly $0.05-0.10), so the
+GitHub Actions workflow (`Evals`) is manual-trigger only and needs the
+`ANTHROPIC_API_KEY` repository secret. Nothing in the evals touches the
+deployed service, so hosting cost is zero.
+
 ## Tests
 
     cd backend && pip install -r requirements-dev.txt

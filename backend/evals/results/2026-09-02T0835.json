@@ -1,0 +1,112 @@
+{
+  "date": "2026-09-02 08:35",
+  "roster_verified_as_of": "2026-09-02",
+  "summary": {
+    "players": 8,
+    "wrong_player": 0,
+    "team_match": 7,
+    "team_mismatch": 1,
+    "team_missing": 0,
+    "errors": 0,
+    "mean_latency_s": 35.6,
+    "mean_completeness": 0.855
+  },
+  "rows": [
+    {
+      "name": "Jordan Pope",
+      "latency_s": 37.11,
+      "reported_name": "Jordan Pope",
+      "reported_team": "Oregon State",
+      "season": null,
+      "confidence": 0.15,
+      "completeness": 0.263,
+      "wrong_player": false,
+      "team": "match",
+      "error": null
+    },
+    {
+      "name": "Cameron Boozer",
+      "latency_s": 70.87,
+      "reported_name": "Cameron Boozer",
+      "reported_team": "Duke Blue Devils",
+      "season": "2025-26",
+      "confidence": 0.62,
+      "completeness": 0.842,
+      "wrong_player": false,
+      "team": "match",
+      "error": null
+    },
+    {
+      "name": "Cayden Boozer",
+      "latency_s": 28.25,
+      "reported_name": "Cayden Boozer",
+      "reported_team": "Duke Blue Devils",
+      "season": "2025-26",
+      "confidence": 0.62,
+      "completeness": 0.947,
+      "wrong_player": false,
+      "team": "match",
+      "error": null
+    },
+    {
+      "name": "AJ Dybantsa",
+      "latency_s": 30.97,
+      "reported_name": "AJ Dybantsa",
+      "reported_team": "BYU",
+      "season": "2025-26",
+      "confidence": 0.85,
+      "completeness": 1.0,
+      "wrong_player": false,
+      "team": "match",
+      "error": null
+    },
+    {
+      "name": "Darryn Peterson",
+      "latency_s": 30.13,
+      "reported_name": "Darryn Peterson",
+      "reported_team": "Kansas Jayhawks",
+      "season": "2025-26",
+      "confidence": 0.72,
+      "completeness": 0.947,
+      "wrong_player": false,
+      "team": "match",
+      "error": null
+    },
+    {
+      "name": "Nate Ament",
+      "latency_s": 29.69,
+      "reported_name": "Nate Ament",
+      "reported_team": "Tennessee",
+      "season": "2025-26",
+      "confidence": 0.72,
+      "completeness": 1.0,
+      "wrong_player": false,
+      "team": "match",
+      "error": null
+    },
+    {
+      "name": "Braden Smith",
+      "latency_s": 29.59,
+      "reported_name": "Braden Smith",
+      "reported_team": "Indiana Pacers (Two-Way) / Noblesville Boom (G League)",
+      "season": "2025-26",
+      "confidence": 0.62,
+      "completeness": 0.947,
+      "wrong_player": false,
+      "team": "mismatch",
+      "error": null
+    },
+    {
+      "name": "Xaivian Lee",
+      "latency_s": 28.14,
+      "reported_name": "Xaivian Lee",
+      "reported_team": "Florida (most recent college); committed to Gonzaga for 2026-27",
+      "season": "2025-26",
+      "confidence": 0.52,
+      "completeness": 0.895,
+      "wrong_player": false,
+      "team": "match",
+      "error": null
+    }
+  ]
+}
